@@ -2,6 +2,11 @@ name: Build Fire TV APK
 
 on:
   workflow_dispatch:
+    inputs:
+      allow_debug_only:
+        description: "Build debug APK only (artifact only; does NOT publish firetv-latest)"
+        type: boolean
+        default: false
   push:
 
 permissions:
@@ -40,18 +45,48 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ALLOW_DEBUG_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_debug_only }}
+          IS_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+          set -euo pipefail
+          HAS_RELEASE_SECRETS=0
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ] && [ -n "${ANDROID_KEY_PASSWORD:-}" ]; then
+            HAS_RELEASE_SECRETS=1
+          fi
+
+          if [ "$HAS_RELEASE_SECRETS" = "1" ]; then
             echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "${RUNNER_TEMP}/release.keystore"
             export ANDROID_KEYSTORE_PATH="${RUNNER_TEMP}/release.keystore"
             gradle assembleRelease -PAPP_VERSION_CODE=${{ github.run_number }} --no-daemon
             cp app/build/outputs/apk/release/app-release.apk ../Pantalla-IGC-FireTV.apk
             echo "SIGNING_MODE=release" >> "$GITHUB_ENV"
+            # Hygiene: do not leave the keystore on the runner disk longer than needed
+            shred -u "${RUNNER_TEMP}/release.keystore" 2>/dev/null || rm -f "${RUNNER_TEMP}/release.keystore"
+          elif [ "${IS_MAIN}" = "true" ] && [ "${ALLOW_DEBUG_ONLY}" != "true" ]; then
+            {
+              echo "::error::Missing GitHub Actions secrets for a stable release keystore on main."
+              echo "Configure these repository secrets, then re-run this workflow:"
+              echo "  ANDROID_KEYSTORE_BASE64   (base64 of the .jks/.keystore file)"
+              echo "  ANDROID_KEYSTORE_PASSWORD"
+              echo "  ANDROID_KEY_ALIAS"
+              echo "  ANDROID_KEY_PASSWORD"
+              echo "See firetv-apk/README.md (section Firma / actualizaciones)."
+              echo "Refusing to publish an ephemeral debug APK to firetv-latest."
+            } >&2
+            exit 1
           else
+            echo "::warning::Building ephemeral debug APK (non-main or allow_debug_only). Will NOT publish firetv-latest."
             gradle assembleDebug -PAPP_VERSION_CODE=${{ github.run_number }} --no-daemon
             cp app/build/outputs/apk/debug/app-debug.apk ../Pantalla-IGC-FireTV.apk
             echo "SIGNING_MODE=debug-ephemeral" >> "$GITHUB_ENV"
           fi
+
+      - name: Verify APK is signed
+        if: env.SIGNING_MODE == 'release'
+        run: |
+          set -euo pipefail
+          jarsigner -verify -strict Pantalla-IGC-FireTV.apk
+          echo "APK jarsigner verification OK (stable release keystore)."
 
       - name: Upload Fire TV APK artifact
         uses: actions/upload-artifact@v4
@@ -61,6 +96,7 @@ jobs:
           if-no-files-found: error
 
       - name: Generate detailed Release Notes
+        if: env.SIGNING_MODE == 'release' && github.ref == 'refs/heads/main'
         run: |
           COMMIT_TITLE=$(git log -1 --pretty=format:"%s")
           COMMIT_BODY=$(git log -1 --pretty=format:"%b")
@@ -72,11 +108,8 @@ jobs:
           {
             printf '## Pantalla IGC Fire TV · v1.0.%s [vc:%s]\n\n' "${{ github.run_number }}" "${{ github.run_number }}"
             printf '**Commit:** `%s` — %s\n' "$SHORT_SHA" "$COMMIT_TITLE"
-            if [ "${{ env.SIGNING_MODE }}" = "release" ]; then
-              printf '**Firma:** Release persistente (auto-actualizable sin desinstalar)\n'
-            else
-              printf '**Firma:** Debug temporal (configura Secrets de keystore para auto-actualizar sobre la instalada)\n'
-            fi
+            printf '**Firma:** Release persistente (mismo keystore en Actions → actualizable sin desinstalar)\n'
+            printf '\n> **Migración desde builds debug:** si el Fire TV tiene la app instalada con firma debug temporal, hay que **desinstalar una vez** e instalar este APK release. Después, las actualizaciones del tag `firetv-latest` sí se aplican encima.\n'
             if [ -n "$COMMIT_BODY" ]; then
               printf '\n%s\n' "$COMMIT_BODY"
             fi
@@ -88,6 +121,7 @@ jobs:
           } > release-notes.md
 
       - name: Publish direct APK to Releases (latest)
+        if: env.SIGNING_MODE == 'release' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: firetv-latest
