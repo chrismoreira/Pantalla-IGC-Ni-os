@@ -8,6 +8,10 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -27,6 +31,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.GridLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -42,13 +47,30 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var rootContainer: FrameLayout
     private lateinit var webView: WebView
+    private lateinit var splashOverlay: LinearLayout
+    private lateinit var splashStatusView: TextView
     private var customVideoView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private var updatePromptedInSession = false
     private var lastUpdateCheckMs = 0L
     private var webPageLoaded = false
+    private var mainFrameHadError = false
     private var activePinDialog: AlertDialog? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    private val retryLoadRunnable = Runnable {
+        if (!webPageLoaded && !isFinishing && !isDestroyed) {
+            updateSplashStatus()
+            webView.loadUrl(kioskUrl)
+        }
+    }
+
+    private val delayedAutoUpdateRunnable = Runnable {
+        if (!isFinishing && !isDestroyed) {
+            checkGitHubReleaseForUpdate()
+        }
+    }
 
     private val kioskUrl: String by lazy {
         getString(R.string.kiosk_url)
@@ -87,11 +109,67 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun isNetworkConnected(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val active = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(active) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun updateSplashStatus() {
+        if (!::splashStatusView.isInitialized) return
+        splashStatusView.text = if (isNetworkConnected()) {
+            "Conectando con Pantalla IGC..."
+        } else {
+            "Esperando conexión Wi-Fi..."
+        }
+    }
+
+    private fun showSplashOverlay() {
+        if (::splashOverlay.isInitialized) {
+            updateSplashStatus()
+            splashOverlay.visibility = View.VISIBLE
+        }
+    }
+
+    private fun hideSplashOverlay() {
+        if (::splashOverlay.isInitialized) {
+            splashOverlay.visibility = View.GONE
+        }
+    }
+
+    private fun registerWifiObserver() {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                runOnUiThread {
+                    if (!webPageLoaded && !isFinishing && !isDestroyed) {
+                        webView.removeCallbacks(retryLoadRunnable)
+                        updateSplashStatus()
+                        webView.loadUrl(kioskUrl)
+                    }
+                }
+            }
+        }
+        networkCallback = cb
+        try {
+            cm.registerNetworkCallback(request, cb)
+        } catch (_: Exception) {
+            networkCallback = null
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        val dp = resources.displayMetrics.density
+        fun px(value: Int): Int = (value * dp).toInt()
 
         rootContainer = FrameLayout(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -118,10 +196,19 @@ class MainActivity : AppCompatActivity() {
             addJavascriptInterface(KioskJsBridge(), "IGCKiosk")
 
             webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    if (url != null && url != "about:blank") {
+                        mainFrameHadError = false
+                    }
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    if (url != null && url != "about:blank") {
+                    if (url != null && url != "about:blank" && !mainFrameHadError) {
                         webPageLoaded = true
+                        webView.removeCallbacks(retryLoadRunnable)
+                        hideSplashOverlay()
                     }
                 }
 
@@ -131,8 +218,11 @@ class MainActivity : AppCompatActivity() {
                     error: WebResourceError?
                 ) {
                     if (request?.isForMainFrame == true) {
+                        mainFrameHadError = true
                         webPageLoaded = false
-                        view?.postDelayed({ view.loadUrl(kioskUrl) }, 5000)
+                        showSplashOverlay()
+                        view?.removeCallbacks(retryLoadRunnable)
+                        view?.postDelayed(retryLoadRunnable, 1500)
                     }
                 }
             }
@@ -162,6 +252,47 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        splashOverlay = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#163E3D"))
+            setPadding(px(32), px(32), px(32), px(32))
+
+            val logo = ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_igc_mark)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            addView(logo, LinearLayout.LayoutParams(px(110), px(110)).apply {
+                bottomMargin = px(18)
+            })
+
+            val title = TextView(this@MainActivity).apply {
+                text = "Pantalla IGC · Cuidado de niños"
+                textSize = 22f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.parseColor("#FAF2E6"))
+                gravity = Gravity.CENTER
+            }
+            addView(title)
+
+            splashStatusView = TextView(this@MainActivity).apply {
+                text = "Conectando con Pantalla IGC..."
+                textSize = 15f
+                setTextColor(Color.parseColor("#4DB8AF"))
+                gravity = Gravity.CENTER
+                setPadding(0, px(8), 0, px(20))
+            }
+            addView(splashStatusView)
+
+            val hint = TextView(this@MainActivity).apply {
+                text = "Presiona OK o Atrás si necesitas configurar el Wi-Fi (PIN)"
+                textSize = 13f
+                setTextColor(Color.parseColor("#E9D0AC"))
+                gravity = Gravity.CENTER
+            }
+            addView(hint)
+        }
+
         rootContainer.addView(
             webView,
             FrameLayout.LayoutParams(
@@ -169,10 +300,21 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
+        rootContainer.addView(
+            splashOverlay,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
         setContentView(rootContainer)
         enableImmersiveMode()
+        registerWifiObserver()
+
+        showSplashOverlay()
         webView.loadUrl(kioskUrl)
-        checkGitHubReleaseForUpdate()
+        // Diferir el chequeo de actualizaciones para no competir con la carga inicial de la pantalla
+        rootContainer.postDelayed(delayedAutoUpdateRunnable, 15_000L)
     }
 
     override fun onResume() {
@@ -180,9 +322,12 @@ class MainActivity : AppCompatActivity() {
         enableImmersiveMode()
         webView.onResume()
         if (webView.url == null || webView.url == "about:blank") {
+            webPageLoaded = false
+            showSplashOverlay()
             webView.loadUrl(kioskUrl)
         }
-        checkGitHubReleaseForUpdate()
+        rootContainer.removeCallbacks(delayedAutoUpdateRunnable)
+        rootContainer.postDelayed(delayedAutoUpdateRunnable, 15_000L)
     }
 
     override fun onPause() {
@@ -193,10 +338,23 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         // Libera decodificadores de video en Fire OS al salir a segundo plano
+        webPageLoaded = false
+        webView.removeCallbacks(retryLoadRunnable)
         webView.loadUrl("about:blank")
     }
 
     override fun onDestroy() {
+        rootContainer.removeCallbacks(delayedAutoUpdateRunnable)
+        webView.removeCallbacks(retryLoadRunnable)
+        networkCallback?.let { cb ->
+            try {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                cm?.unregisterNetworkCallback(cb)
+            } catch (_: Exception) {
+                // Ignore if already unregistered
+            }
+        }
+        networkCallback = null
         activePinDialog?.dismiss()
         activePinDialog = null
         updateExecutor.shutdownNow()
