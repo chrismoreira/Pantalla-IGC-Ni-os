@@ -2,7 +2,13 @@
 
 Este proyecto Android/Kotlin genera una **aplicación nativa gratuita (`.apk`)** para **Amazon Fire TV Stick** sin depender de apps de kiosco de pago:
 - **Ícono y Banner Leanback 16:9** de Iglesia Gran Comisión (`ic_igc_launcher`, `banner_16x9` / `tv_banner` en todas las densidades mipmap + drawable).
-- **Amazon App Icon (TV):** `store-assets/firetv-banner-1280x720.png` — RGB opaco, full-bleed `#163E3D`, logo O blanco solo en safe zone 882×448; también `firetv-icon-114x114.png` y `firetv-icon-512x512.png`. Regenerar: `python3 scripts/generate-tv-banners.py`. En sideload Fire OS suele letterboxear el icono 1:1; el tile 16:9 full-bleed llega vía Appstore.
+- **Amazon Appstore assets** (`store-assets/`, PNG RGB opaco, full-bleed `#163E3D`, logo O blanco `ic_igc_mark`, sin bordes/rounded). Regenerar: `python3 scripts/generate-tv-banners.py`.
+  - App Icon (TV) `firetv-banner-1280x720.png` — logo solo en safe zone 882×448; también `firetv-icon-114x114.png` y `firetv-icon-512x512.png`.
+  - Background Image `firetv-background-1920x1080.png` — sujeto en safe area derecha 1214×830.
+  - Promotional Image `firetv-promotional-1024x500.png` — logo + título «Pantalla IGC».
+  - Featured Content Logo `firetv-featured-logo-640x260.png` — logo + título sobre teal (RGB; Amazon permite alpha, aquí sin transparencia).
+  - Featured Content Background `firetv-featured-background-1920x720.png`.
+  - En sideload Fire OS suele letterboxear el icono 1:1; el tile 16:9 full-bleed llega vía Appstore.
 - **Modo Kiosco 1920x1080**: pantalla siempre encendida (`FLAG_KEEP_SCREEN_ON`), pantalla completa y aceleración por hardware.
 - **Autoplay de YouTube** habilitado (`mediaPlaybackRequiresUserGesture = false`).
 - **Control remoto Fire TV nativo**: `OK/Centro`, `Menú`, `Izq/Der`, `Arriba/Abajo` y `Atrás` mapeados a los atajos del menú en pantalla.
