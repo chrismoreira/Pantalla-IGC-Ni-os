@@ -72,14 +72,37 @@ export interface ServiceWindowInfo {
   isWithinTodayServiceWindow: boolean;
 }
 
+export interface ServiceWindowTiming {
+  streamEndedAtMs?: number | null;
+  endDelaySeconds?: number;
+}
+
+/**
+ * Auto screen rules:
+ * - `antes` in the pre-service window, and any time outside live / post-stream
+ * - `vivo` during the scheduled live window until the stream is confirmed ended
+ * - `despues` only from (streamEnd + endDelay) until (streamEnd + postDespuesMinutes)
+ *   then back to `antes` (even mid-service or days later)
+ */
 export function getServiceWindowState(
   nowMs: number = Date.now(),
-  streamEndedToday: boolean = false,
+  timing: ServiceWindowTiming | boolean = {},
   schedule = CONFIG.schedule,
 ): ServiceWindowInfo {
   const sv = getElSalvadorNow(nowMs);
   const { serviceDay, serviceHour, serviceMinute, durationMinutes, preWindowMinutes } =
     schedule;
+  const postDespuesMinutes = schedule.postDespuesMinutes ?? 60;
+
+  // Legacy callers passed `streamEndedToday: boolean` as the 2nd arg
+  const normalized: ServiceWindowTiming =
+    typeof timing === 'boolean'
+      ? { streamEndedAtMs: timing ? nowMs : null }
+      : timing;
+
+  const streamEndedAtMs = normalized.streamEndedAtMs ?? null;
+  const endDelaySeconds =
+    normalized.endDelaySeconds ?? CONFIG.youtube.endDelaySeconds;
 
   // Days offset to get the service day of the current week (e.g. Sunday = 0)
   const diffToServiceDay = serviceDay - sv.weekday;
@@ -94,6 +117,8 @@ export function getServiceWindowState(
   const durationMs = durationMinutes * 60_000;
   const preWindowMs = preWindowMinutes * 60_000;
   const weekMs = 7 * 24 * 60 * 60_000;
+  const endDelayMs = Math.max(0, endDelaySeconds) * 1000;
+  const postDespuesMs = Math.max(0, postDespuesMinutes) * 60_000;
 
   const candidateEndMs = candidateStartMs + durationMs;
 
@@ -109,13 +134,25 @@ export function getServiceWindowState(
   const inPreWindow = nowMs >= activePreStartMs && nowMs < activeStartMs;
   const inLiveWindow = nowMs >= activeStartMs && nowMs <= activeEndMs;
 
-  let autoScreen: ActiveScreen = 'despues';
-  if (inPreWindow) {
+  const inDespuesWindow =
+    streamEndedAtMs !== null &&
+    postDespuesMs > 0 &&
+    nowMs >= streamEndedAtMs + endDelayMs &&
+    nowMs < streamEndedAtMs + postDespuesMs;
+
+  const streamConfirmedEnded =
+    streamEndedAtMs !== null && nowMs >= streamEndedAtMs + endDelayMs;
+
+  let autoScreen: ActiveScreen = 'antes';
+  if (inDespuesWindow) {
+    autoScreen = 'despues';
+  } else if (inPreWindow) {
     autoScreen = 'antes';
   } else if (inLiveWindow) {
-    autoScreen = streamEndedToday ? 'despues' : 'vivo';
+    // Live slot still open, but stream already ended past the 1h cap → antes
+    autoScreen = streamConfirmedEnded ? 'antes' : 'vivo';
   } else {
-    autoScreen = 'despues';
+    autoScreen = 'antes';
   }
 
   const nextServiceStartMs =

@@ -30,6 +30,7 @@ interface RuntimeOverrides {
     serviceMinute: number;
     durationMinutes: number;
     preWindowMinutes: number;
+    postDespuesMinutes?: number;
   };
   youtube?: {
     channelId: string;

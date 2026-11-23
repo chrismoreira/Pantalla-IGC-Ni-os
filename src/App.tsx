@@ -258,7 +258,7 @@ export default function App() {
     () =>
       getServiceWindowState(
         nowMs,
-        false,
+        { streamEndedAtMs: null },
         activeConfig.schedule,
       ),
     [nowMs, activeConfig.schedule],
@@ -275,21 +275,22 @@ export default function App() {
     }
   }, [baseWindowInfo.serviceStartMs]);
 
-  const endDelayMs = Math.max(0, activeConfig.youtube.endDelaySeconds) * 1000;
-  const streamEndedToday =
-    streamEndedAtMs !== null && nowMs - streamEndedAtMs >= endDelayMs;
-
-  const autoScreen: ActiveScreen =
-    baseWindowInfo.isWithinTodayServiceWindow && streamEndedToday
-      ? 'despues'
-      : baseWindowInfo.autoScreen;
-
   const windowInfo = useMemo(
-    () => ({
-      ...baseWindowInfo,
-      autoScreen,
-    }),
-    [baseWindowInfo, autoScreen],
+    () =>
+      getServiceWindowState(
+        nowMs,
+        {
+          streamEndedAtMs,
+          endDelaySeconds: activeConfig.youtube.endDelaySeconds,
+        },
+        activeConfig.schedule,
+      ),
+    [
+      nowMs,
+      streamEndedAtMs,
+      activeConfig.youtube.endDelaySeconds,
+      activeConfig.schedule,
+    ],
   );
 
   const effectiveScreen: ActiveScreen =
