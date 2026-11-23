@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Volume2, VolumeX, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lock, Volume2, VolumeX, X } from 'lucide-react';
 import { ActiveScreen, CONFIG, ModeSetting } from '../config';
 
 interface ControlMenuProps {
@@ -15,6 +15,7 @@ interface ControlMenuProps {
   onNextMoment: () => void;
   onToggleTeamAlert: () => void;
   onToggleMuted: () => void;
+  onRequestExitWithPin?: () => void;
   onClose: () => void;
 }
 
@@ -38,6 +39,7 @@ export function ControlMenu({
   onNextMoment,
   onToggleTeamAlert,
   onToggleMuted,
+  onRequestExitWithPin,
   onClose,
 }: ControlMenuProps) {
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -317,11 +319,49 @@ export function ControlMenu({
               </button>
             </div>
           </div>
+
+          {onRequestExitWithPin && (
+            <div
+              className="pt-5 border-t flex items-center justify-between gap-4"
+              style={{ borderColor: 'rgba(250, 242, 230, 0.14)' }}
+            >
+              <div>
+                <p
+                  className="font-display text-[18px] font-bold"
+                  style={{ color: 'var(--crema)' }}
+                >
+                  Opciones del Fire TV
+                </p>
+                <p
+                  className="font-body text-[15px]"
+                  style={{ color: 'var(--arena)' }}
+                >
+                  Requiere PIN para ir al inicio o configurar Wi-Fi y red
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onRequestExitWithPin();
+                }}
+                className="flex items-center gap-2.5 px-5 py-3.5 rounded-[14px] font-display text-[19px] font-bold shrink-0 focus:outline-none focus:ring-4"
+                style={{
+                  backgroundColor: 'var(--verde3)',
+                  color: 'var(--amarillo)',
+                  border: '2px solid var(--amarillo)',
+                }}
+              >
+                <Lock size={20} />
+                Salir / Red Fire TV (PIN)
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Ayuda de control remoto */}
         <div
-          className="mt-7 pt-5 border-t flex items-center justify-between font-body text-[17px]"
+          className="mt-7 pt-5 border-t flex flex-wrap items-center justify-between gap-3 font-body text-[17px]"
           style={{
             borderColor: 'rgba(250, 242, 230, 0.14)',
             color: 'var(--arena)',
@@ -330,6 +370,7 @@ export function ControlMenu({
           <span>OK / M: Abrir o cerrar menú</span>
           {showMomentosSidebar && <span>Izq / Der (sin menú): Momento</span>}
           <span>Arriba / Abajo (sin menú): Aviso</span>
+          {onRequestExitWithPin && <span>Atrás ×2: Salir / Red (PIN)</span>}
         </div>
       </div>
     </div>

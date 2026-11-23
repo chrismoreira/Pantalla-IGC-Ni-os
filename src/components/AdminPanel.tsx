@@ -14,6 +14,7 @@ import {
   CONFIG,
   ModeSetting,
   RuntimeOverrides,
+  sanitizeKioskPin,
   SignageConfig,
   SignageContent,
 } from '../config';
@@ -64,6 +65,7 @@ export function AdminPanel({
     activeConfig.youtube.streamsUrl || activeConfig.youtube.channelHandle,
   );
   const [forcedMode, setForcedMode] = useState<ModeSetting>(activeConfig.forcedMode);
+  const [kioskPin, setKioskPin] = useState<string>(activeConfig.kioskPin);
   const [sheetUrl, setSheetUrl] = useState(activeConfig.sheets.googleSheetCsvUrl);
   const [recordatorioEntrega, setRecordatorioEntrega] = useState(
     activeConfig.recordatorioEntrega,
@@ -100,12 +102,16 @@ export function AdminPanel({
       const normalizedYoutube = await buildNormalizedYoutube();
       setYoutube(normalizedYoutube);
 
+      const safePin = sanitizeKioskPin(kioskPin);
+      setKioskPin(safePin);
+
       const payload: RuntimeOverrides = {
         schedule,
         youtube: normalizedYoutube,
         sheets: { googleSheetCsvUrl: sheetUrl.trim() },
         recordatorioEntrega,
         forcedMode,
+        kioskPin: safePin,
         features,
         content,
       };
@@ -147,6 +153,7 @@ export function AdminPanel({
       });
       setYoutubeInput(CONFIG.youtube.streamsUrl);
       setForcedMode(CONFIG.forcedMode);
+      setKioskPin(CONFIG.kioskPin);
       setSheetUrl(CONFIG.sheets.googleSheetCsvUrl);
       setRecordatorioEntrega(CONFIG.recordatorioEntrega);
       setFeatures(CONFIG.features);
@@ -1014,7 +1021,7 @@ export function AdminPanel({
 
         {/* Aplicación nativa Fire TV (APK gratuita) */}
         <section
-          className="rounded-2xl p-6 space-y-3"
+          className="rounded-2xl p-6 space-y-4"
           style={{ backgroundColor: 'var(--verde)' }}
         >
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1053,6 +1060,44 @@ export function AdminPanel({
             >
               Copiar URL del televisor
             </button>
+          </div>
+
+          <div
+            className="rounded-xl p-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-center"
+            style={{ backgroundColor: 'var(--verde2)' }}
+          >
+            <div className="md:col-span-8">
+              <p
+                className="font-display text-sm font-bold"
+                style={{ color: 'var(--amarillo)' }}
+              >
+                Inicio automático y PIN de salida / red en Fire TV
+              </p>
+              <p className="font-body text-xs mt-1 leading-relaxed" style={{ color: 'var(--arena)' }}>
+                La app inicia automáticamente al encender el Fire TV. Para salir al menú normal o configurar el Wi-Fi, presiona{' '}
+                <strong style={{ color: 'var(--crema)' }}>OK / Menú → Salir / Red Fire TV (PIN)</strong>{' '}
+                o presiona <strong style={{ color: 'var(--crema)' }}>Atrás dos veces</strong> con el control remoto (si escribes menos de 4 dígitos se usará{' '}
+                <strong style={{ color: 'var(--crema)' }}>{CONFIG.kioskPin}</strong>).
+              </p>
+            </div>
+            <label className="block md:col-span-4">
+              <span
+                className="font-display text-xs font-bold uppercase tracking-wider block mb-1.5"
+                style={{ color: 'var(--crema)' }}
+              >
+                PIN de salida (4 a 8 dígitos)
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={8}
+                value={kioskPin}
+                onChange={(e) => setKioskPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                placeholder={CONFIG.kioskPin}
+                className="w-full rounded-lg px-3.5 py-2.5 text-sm font-display font-bold tracking-[0.25em] text-center tabular-nums"
+                style={{ backgroundColor: 'var(--verde3)', color: 'var(--amarillo)' }}
+              />
+            </label>
           </div>
         </section>
 

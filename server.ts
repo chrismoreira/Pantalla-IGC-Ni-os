@@ -40,6 +40,7 @@ interface RuntimeOverrides {
   };
   recordatorioEntrega?: string;
   forcedMode?: 'auto' | 'antes' | 'vivo' | 'despues';
+  kioskPin?: string;
   updatedAt?: number;
   features?: {
     showTemasYAnuncios?: boolean;

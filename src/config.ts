@@ -52,6 +52,7 @@ export interface SignageConfig {
   momentos: string[];
   recordatorioEntrega: string;
   forcedMode: ModeSetting;
+  kioskPin: string;
   features: {
     showTemasYAnuncios: boolean;
     showMomentosSidebar: boolean;
@@ -93,6 +94,7 @@ export const CONFIG: SignageConfig = {
   recordatorioEntrega:
     'Recuerda entregar a cada niño únicamente a la persona que lo registró, verificando el brazalete correspondiente.',
   forcedMode: 'auto',
+  kioskPin: '1914',
   features: {
     showTemasYAnuncios: false,
     showMomentosSidebar: false,
@@ -180,12 +182,18 @@ export interface RuntimeOverrides {
   };
   recordatorioEntrega?: string;
   forcedMode?: ModeSetting;
+  kioskPin?: string;
   updatedAt?: number;
   features?: {
     showTemasYAnuncios?: boolean;
     showMomentosSidebar?: boolean;
   };
   content?: SignageContent;
+}
+
+export function sanitizeKioskPin(raw: string | undefined): string {
+  const digits = (raw ?? '').replace(/\D/g, '').slice(0, 8);
+  return /^\d{4,8}$/.test(digits) ? digits : CONFIG.kioskPin;
 }
 
 export function mergeWithRuntimeConfig(
@@ -206,11 +214,24 @@ export function mergeWithRuntimeConfig(
     recordatorioEntrega:
       overrides.recordatorioEntrega ?? CONFIG.recordatorioEntrega,
     forcedMode: overrides.forcedMode ?? CONFIG.forcedMode,
+    kioskPin: overrides.kioskPin
+      ? sanitizeKioskPin(overrides.kioskPin)
+      : CONFIG.kioskPin,
     features: {
       ...CONFIG.features,
       ...(overrides.features ?? {}),
     },
     defaults: overrides.content ?? CONFIG.defaults,
   };
+}
+
+declare global {
+  interface Window {
+    IGCKiosk?: {
+      isNativeKiosk?: () => boolean;
+      setExitPin?: (pin: string) => void;
+      requestExitWithPin?: () => void;
+    };
+  }
 }
 

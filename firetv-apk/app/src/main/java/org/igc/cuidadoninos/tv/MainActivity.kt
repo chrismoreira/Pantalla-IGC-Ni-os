@@ -1,22 +1,35 @@
 package org.igc.cuidadoninos.tv
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.GridLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import org.json.JSONObject
@@ -34,9 +47,44 @@ class MainActivity : AppCompatActivity() {
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private var updatePromptedInSession = false
     private var lastUpdateCheckMs = 0L
+    private var webPageLoaded = false
+    private var activePinDialog: AlertDialog? = null
 
     private val kioskUrl: String by lazy {
         getString(R.string.kiosk_url)
+    }
+
+    private val prefs by lazy {
+        getSharedPreferences("igc_kiosk_prefs", Context.MODE_PRIVATE)
+    }
+
+    private fun getExitPin(): String {
+        val saved = prefs.getString("exit_pin", null)?.trim()
+        return if (!saved.isNullOrEmpty() && Regex("^\\d{4,8}$").matches(saved)) {
+            saved
+        } else {
+            getString(R.string.default_kiosk_pin)
+        }
+    }
+
+    inner class KioskJsBridge {
+        @JavascriptInterface
+        fun isNativeKiosk(): Boolean = true
+
+        @JavascriptInterface
+        fun setExitPin(pin: String?) {
+            val cleaned = pin?.trim() ?: return
+            if (Regex("^\\d{4,8}$").matches(cleaned)) {
+                prefs.edit().putString("exit_pin", cleaned).apply()
+            }
+        }
+
+        @JavascriptInterface
+        fun requestExitWithPin() {
+            runOnUiThread {
+                showExitPinDialog()
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -62,17 +110,28 @@ class MainActivity : AppCompatActivity() {
                 mediaPlaybackRequiresUserGesture = false
                 loadWithOverviewMode = true
                 useWideViewPort = true
+                textZoom = 100
                 cacheMode = WebSettings.LOAD_DEFAULT
                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             }
 
+            addJavascriptInterface(KioskJsBridge(), "IGCKiosk")
+
             webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    if (url != null && url != "about:blank") {
+                        webPageLoaded = true
+                    }
+                }
+
                 override fun onReceivedError(
                     view: WebView?,
                     request: WebResourceRequest?,
                     error: WebResourceError?
                 ) {
                     if (request?.isForMainFrame == true) {
+                        webPageLoaded = false
                         view?.postDelayed({ view.loadUrl(kioskUrl) }, 5000)
                     }
                 }
@@ -138,9 +197,338 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        activePinDialog?.dismiss()
+        activePinDialog = null
         updateExecutor.shutdownNow()
         webView.destroy()
         super.onDestroy()
+    }
+
+    private fun showExitPinDialog() {
+        if (activePinDialog?.isShowing == true) return
+
+        val expectedPin = getExitPin()
+        val entered = StringBuilder()
+
+        val dp = resources.displayMetrics.density
+        fun px(value: Int): Int = (value * dp).toInt()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(px(28), px(24), px(28), px(24))
+            setBackgroundColor(Color.parseColor("#16403D"))
+        }
+
+        val titleView = TextView(this).apply {
+            text = "Modo administrador Fire TV"
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#FAF2E6"))
+            gravity = Gravity.CENTER
+        }
+
+        val subtitleView = TextView(this).apply {
+            text = "Ingresa el PIN para salir o configurar red"
+            textSize = 14f
+            setTextColor(Color.parseColor("#E9D0AC"))
+            gravity = Gravity.CENTER
+            setPadding(0, px(6), 0, px(14))
+        }
+
+        val pinDisplay = TextView(this).apply {
+            textSize = 26f
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#FEC34C"))
+            gravity = Gravity.CENTER
+            setPadding(px(16), px(12), px(16), px(12))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#0D2725"))
+                cornerRadius = px(10).toFloat()
+            }
+        }
+
+        val errorView = TextView(this).apply {
+            text = ""
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#FD7D42"))
+            gravity = Gravity.CENTER
+            setPadding(0, px(8), 0, px(10))
+        }
+
+        fun refreshDisplay() {
+            if (entered.isEmpty()) {
+                pinDisplay.text = "_ _ _ _"
+            } else {
+                pinDisplay.text = "* ".repeat(entered.length).trim()
+            }
+        }
+        refreshDisplay()
+
+        container.addView(titleView)
+        container.addView(subtitleView)
+        container.addView(
+            pinDisplay,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        container.addView(errorView)
+
+        val grid = GridLayout(this).apply {
+            columnCount = 3
+            rowCount = 4
+        }
+
+        lateinit var dialog: AlertDialog
+
+        fun verifyPin() {
+            if (entered.toString() == expectedPin) {
+                dialog.dismiss()
+                showUnlockedActionsDialog()
+            } else {
+                errorView.text = "PIN incorrecto. Intenta de nuevo."
+                entered.clear()
+                refreshDisplay()
+            }
+        }
+
+        val keys = listOf(
+            "1", "2", "3",
+            "4", "5", "6",
+            "7", "8", "9",
+            "Borrar", "0", "Entrar"
+        )
+
+        var firstFocusBtn: Button? = null
+        keys.forEach { label ->
+            val isAction = label == "Entrar" || label == "Borrar"
+            val btnBg = if (label == "Entrar") "#4DB8AF" else "#1D4D49"
+            val btn = createTvButton(
+                label = label,
+                normalColor = Color.parseColor(btnBg),
+                focusedColor = Color.parseColor("#FEC34C"),
+                normalTextColor = if (label == "Entrar") Color.parseColor("#0D2725") else Color.parseColor("#FAF2E6"),
+                focusedTextColor = Color.parseColor("#0D2725"),
+                textSizeSp = if (isAction) 14f else 18f
+            ) {
+                errorView.text = ""
+                when (label) {
+                    "Borrar" -> {
+                        if (entered.isNotEmpty()) {
+                            entered.deleteCharAt(entered.length - 1)
+                            refreshDisplay()
+                        }
+                    }
+                    "Entrar" -> verifyPin()
+                    else -> {
+                        if (entered.length < 8) {
+                            entered.append(label)
+                            refreshDisplay()
+                            if (entered.length == expectedPin.length && entered.toString() == expectedPin) {
+                                verifyPin()
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (firstFocusBtn == null) firstFocusBtn = btn
+
+            val params = GridLayout.LayoutParams().apply {
+                width = px(92)
+                height = px(48)
+                setMargins(px(5), px(5), px(5), px(5))
+            }
+            grid.addView(btn, params)
+        }
+
+        container.addView(grid)
+
+        val cancelBtn = createTvButton(
+            label = "Cancelar y volver a Pantalla IGC",
+            normalColor = Color.parseColor("#0D2725"),
+            focusedColor = Color.parseColor("#FD7D42"),
+            normalTextColor = Color.parseColor("#E9D0AC"),
+            focusedTextColor = Color.parseColor("#0D2725"),
+            textSizeSp = 14f
+        ) {
+            dialog.dismiss()
+        }
+        container.addView(
+            cancelBtn,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                px(46)
+            ).apply {
+                topMargin = px(12)
+            }
+        )
+
+        dialog = AlertDialog.Builder(this)
+            .setView(container)
+            .setCancelable(true)
+            .create()
+
+        dialog.setOnDismissListener {
+            activePinDialog = null
+            enableImmersiveMode()
+        }
+
+        activePinDialog = dialog
+        dialog.show()
+        firstFocusBtn?.requestFocus()
+    }
+
+    private fun showUnlockedActionsDialog() {
+        val dp = resources.displayMetrics.density
+        fun px(value: Int): Int = (value * dp).toInt()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(28), px(24), px(28), px(24))
+            setBackgroundColor(Color.parseColor("#16403D"))
+        }
+
+        val titleView = TextView(this).apply {
+            text = "Acceso autorizado"
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#4DB8AF"))
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, px(16))
+        }
+        container.addView(titleView)
+
+        lateinit var dialog: AlertDialog
+
+        val homeBtn = createTvButton(
+            label = "Ir al inicio de Fire TV (Salir)",
+            normalColor = Color.parseColor("#FD7D42"),
+            focusedColor = Color.parseColor("#FEC34C"),
+            normalTextColor = Color.parseColor("#0D2725"),
+            focusedTextColor = Color.parseColor("#0D2725"),
+            textSizeSp = 16f
+        ) {
+            dialog.dismiss()
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(homeIntent)
+            finish()
+        }
+
+        val wifiBtn = createTvButton(
+            label = "Configurar Wi-Fi y red",
+            normalColor = Color.parseColor("#1D4D49"),
+            focusedColor = Color.parseColor("#FEC34C"),
+            normalTextColor = Color.parseColor("#FAF2E6"),
+            focusedTextColor = Color.parseColor("#0D2725"),
+            textSizeSp = 16f
+        ) {
+            dialog.dismiss()
+            try {
+                startActivity(Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (_: Exception) {
+                startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+
+        val settingsBtn = createTvButton(
+            label = "Ajustes del dispositivo Fire TV",
+            normalColor = Color.parseColor("#1D4D49"),
+            focusedColor = Color.parseColor("#FEC34C"),
+            normalTextColor = Color.parseColor("#FAF2E6"),
+            focusedTextColor = Color.parseColor("#0D2725"),
+            textSizeSp = 16f
+        ) {
+            dialog.dismiss()
+            startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+
+        val stayBtn = createTvButton(
+            label = "Volver a Pantalla IGC",
+            normalColor = Color.parseColor("#0D2725"),
+            focusedColor = Color.parseColor("#4DB8AF"),
+            normalTextColor = Color.parseColor("#E9D0AC"),
+            focusedTextColor = Color.parseColor("#0D2725"),
+            textSizeSp = 15f
+        ) {
+            dialog.dismiss()
+        }
+
+        listOf(homeBtn, wifiBtn, settingsBtn, stayBtn).forEach { btn ->
+            container.addView(
+                btn,
+                LinearLayout.LayoutParams(px(320), px(52)).apply {
+                    bottomMargin = px(10)
+                }
+            )
+        }
+
+        dialog = AlertDialog.Builder(this)
+            .setView(container)
+            .setCancelable(true)
+            .create()
+
+        dialog.setOnDismissListener {
+            activePinDialog = null
+            enableImmersiveMode()
+        }
+
+        activePinDialog = dialog
+        dialog.show()
+        homeBtn.requestFocus()
+    }
+
+    private fun createTvButton(
+        label: String,
+        normalColor: Int,
+        focusedColor: Int,
+        normalTextColor: Int,
+        focusedTextColor: Int,
+        textSizeSp: Float,
+        onClick: () -> Unit
+    ): Button {
+        val dp = resources.displayMetrics.density
+        val radius = 10f * dp
+
+        val normalDrawable = GradientDrawable().apply {
+            setColor(normalColor)
+            cornerRadius = radius
+        }
+        val focusedDrawable = GradientDrawable().apply {
+            setColor(focusedColor)
+            cornerRadius = radius
+        }
+        val bg = StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), focusedDrawable)
+            addState(intArrayOf(android.R.attr.state_selected), focusedDrawable)
+            addState(intArrayOf(), normalDrawable)
+        }
+        val textColors = ColorStateList(
+            arrayOf(
+                intArrayOf(android.R.attr.state_focused),
+                intArrayOf(android.R.attr.state_selected),
+                intArrayOf()
+            ),
+            intArrayOf(focusedTextColor, focusedTextColor, normalTextColor)
+        )
+
+        return Button(this).apply {
+            text = label
+            textSize = textSizeSp
+            isAllCaps = false
+            typeface = Typeface.DEFAULT_BOLD
+            isFocusable = true
+            isFocusableInTouchMode = false
+            background = bg
+            setTextColor(textColors)
+            setOnClickListener { onClick() }
+        }
     }
 
     private fun checkGitHubReleaseForUpdate() {
@@ -229,26 +617,41 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN) {
-            val jsKey = when (event.keyCode) {
-                KeyEvent.KEYCODE_DPAD_CENTER,
-                KeyEvent.KEYCODE_ENTER,
-                KeyEvent.KEYCODE_NUMPAD_ENTER -> "Enter"
-                KeyEvent.KEYCODE_MENU -> "m"
-                KeyEvent.KEYCODE_DPAD_LEFT -> "ArrowLeft"
-                KeyEvent.KEYCODE_DPAD_RIGHT -> "ArrowRight"
-                KeyEvent.KEYCODE_DPAD_UP -> "ArrowUp"
-                KeyEvent.KEYCODE_DPAD_DOWN -> "ArrowDown"
-                KeyEvent.KEYCODE_BACK -> "Escape"
-                else -> null
-            }
+        if (activePinDialog?.isShowing == true) {
+            return super.dispatchKeyEvent(event)
+        }
 
-            if (jsKey != null) {
+        val mappedJsKey = when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_NUMPAD_ENTER -> "Enter"
+            KeyEvent.KEYCODE_MENU -> "m"
+            KeyEvent.KEYCODE_DPAD_LEFT -> "ArrowLeft"
+            KeyEvent.KEYCODE_DPAD_RIGHT -> "ArrowRight"
+            KeyEvent.KEYCODE_DPAD_UP -> "ArrowUp"
+            KeyEvent.KEYCODE_DPAD_DOWN -> "ArrowDown"
+            KeyEvent.KEYCODE_BACK -> "Escape"
+            else -> null
+        }
+
+        if (mappedJsKey != null) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                if (
+                    !webPageLoaded &&
+                    (event.keyCode == KeyEvent.KEYCODE_BACK ||
+                        event.keyCode == KeyEvent.KEYCODE_MENU ||
+                        event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                        event.keyCode == KeyEvent.KEYCODE_ENTER)
+                ) {
+                    showExitPinDialog()
+                    return true
+                }
+
                 val script =
-                    "window.dispatchEvent(new KeyboardEvent('keydown',{key:'$jsKey',bubbles:true,cancelable:true}));"
+                    "window.dispatchEvent(new KeyboardEvent('keydown',{key:'$mappedJsKey',bubbles:true,cancelable:true}));"
                 webView.evaluateJavascript(script, null)
-                return true
             }
+            return true
         }
         return super.dispatchKeyEvent(event)
     }

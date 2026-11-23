@@ -115,6 +115,12 @@ export default function App() {
   );
   const [muted, setMuted] = useState<boolean>(initialState.muted);
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
+  const [exitHintVisible, setExitHintVisible] = useState<boolean>(false);
+  const isNativeKiosk =
+    typeof window !== 'undefined' &&
+    Boolean(window.IGCKiosk?.isNativeKiosk?.());
+  const lastBackPressRef = useRef<number>(0);
+  const exitHintTimerRef = useRef<number | null>(null);
 
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [stageScale, setStageScale] = useState<number>(() => {
@@ -195,6 +201,12 @@ export default function App() {
       window.clearInterval(interval);
     };
   }, []);
+
+  // Sync admin-configured Fire TV exit PIN to native Android bridge when running in the APK
+  useEffect(() => {
+    if (adminView || !isNativeKiosk) return;
+    window.IGCKiosk?.setExitPin?.(activeConfig.kioskPin);
+  }, [adminView, isNativeKiosk, activeConfig.kioskPin]);
 
   // Persist TV remote state in localStorage
   useEffect(() => {
@@ -379,6 +391,31 @@ export default function App() {
         return;
       }
 
+      if (e.key === 'Escape' && isNativeKiosk) {
+        e.preventDefault();
+        const now = Date.now();
+        if (now - lastBackPressRef.current < 1800) {
+          lastBackPressRef.current = 0;
+          setExitHintVisible(false);
+          if (exitHintTimerRef.current !== null) {
+            window.clearTimeout(exitHintTimerRef.current);
+            exitHintTimerRef.current = null;
+          }
+          window.IGCKiosk?.requestExitWithPin?.();
+        } else {
+          lastBackPressRef.current = now;
+          setExitHintVisible(true);
+          if (exitHintTimerRef.current !== null) {
+            window.clearTimeout(exitHintTimerRef.current);
+          }
+          exitHintTimerRef.current = window.setTimeout(() => {
+            setExitHintVisible(false);
+            exitHintTimerRef.current = null;
+          }, 2200);
+        }
+        return;
+      }
+
       if (e.key === 'ArrowLeft' && activeConfig.features.showMomentosSidebar) {
         e.preventDefault();
         handlePrevMoment();
@@ -392,10 +429,17 @@ export default function App() {
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (exitHintTimerRef.current !== null) {
+        window.clearTimeout(exitHintTimerRef.current);
+        exitHintTimerRef.current = null;
+      }
+    };
   }, [
     adminView,
     menuOpen,
+    isNativeKiosk,
     activeConfig.features.showMomentosSidebar,
     handlePrevMoment,
     handleNextMoment,
@@ -437,6 +481,7 @@ export default function App() {
         id="stage"
         style={{
           transform: `scale(${stageScale})`,
+          zIndex: 1,
         }}
       >
         {effectiveScreen === 'antes' && (
@@ -471,6 +516,7 @@ export default function App() {
             isLiveNow={ytStatus.isLive}
             modeSetting={modeSetting}
             channelId={ytStatus.channelId ?? activeConfig.youtube.channelId}
+            stageScale={stageScale}
             showTemasYAnuncios={activeConfig.features.showTemasYAnuncios}
             showMomentosSidebar={activeConfig.features.showMomentosSidebar}
           />
@@ -486,6 +532,53 @@ export default function App() {
             showAnuncios={activeConfig.features.showTemasYAnuncios}
           />
         )}
+      </div>
+
+      {/* Capa superior para avisos y menú de control por encima del portal de video */}
+      <div
+        style={{
+          position: 'fixed',
+          width: '1920px',
+          height: '1080px',
+          left: '50%',
+          top: '50%',
+          transform: `translate(-50%, -50%) scale(${stageScale})`,
+          transformOrigin: 'center center',
+          zIndex: 50,
+          pointerEvents: menuOpen ? 'auto' : 'none',
+        }}
+      >
+        {effectiveScreen === 'vivo' &&
+          !activeConfig.features.showMomentosSidebar &&
+          showTeamAlert && (
+            <section
+              className="absolute left-1/2 bottom-[36px] -translate-x-1/2 max-w-[1100px] rounded-[20px] px-[34px] py-[20px]"
+              style={{
+                backgroundColor: 'var(--naranja)',
+                color: 'var(--verde3)',
+              }}
+            >
+              <p className="font-display text-[18px] font-extrabold uppercase tracking-[0.1em]">
+                {effectiveContent.avisoEquipo.titulo}
+              </p>
+              <p className="font-body text-[22px] font-semibold leading-[1.35] mt-1">
+                {effectiveContent.avisoEquipo.detalle}
+              </p>
+            </section>
+          )}
+
+        {exitHintVisible && !menuOpen && (
+          <div
+            className="absolute top-[28px] left-1/2 -translate-x-1/2 rounded-[14px] px-6 py-3 font-display text-[20px] font-bold border-2"
+            style={{
+              backgroundColor: 'rgba(13, 39, 37, 0.94)',
+              borderColor: 'var(--amarillo)',
+              color: 'var(--crema)',
+            }}
+          >
+            Presiona Atrás otra vez para ingresar PIN de salida
+          </div>
+        )}
 
         <ControlMenu
           isOpen={menuOpen}
@@ -500,6 +593,11 @@ export default function App() {
           onNextMoment={handleNextMoment}
           onToggleTeamAlert={handleToggleTeamAlert}
           onToggleMuted={handleToggleMuted}
+          onRequestExitWithPin={
+            isNativeKiosk
+              ? () => window.IGCKiosk?.requestExitWithPin?.()
+              : undefined
+          }
           onClose={() => setMenuOpen(false)}
         />
       </div>
