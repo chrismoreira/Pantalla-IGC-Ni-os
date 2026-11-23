@@ -1,0 +1,393 @@
+import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createServer as createViteServer } from 'vite';
+
+interface StreamEntry {
+  videoId: string;
+  title: string;
+  publishedText: string;
+  isLive: boolean;
+}
+
+interface StreamsPayload {
+  channelId: string;
+  streamsUrl: string;
+  isLive: boolean;
+  liveVideoId: string | null;
+  liveTitle: string | null;
+  latestStream: StreamEntry | null;
+  streams: StreamEntry[];
+}
+
+interface RuntimeOverrides {
+  schedule?: {
+    serviceDay: number;
+    serviceHour: number;
+    serviceMinute: number;
+    durationMinutes: number;
+    preWindowMinutes: number;
+  };
+  youtube?: {
+    channelId: string;
+    channelHandle: string;
+    streamsUrl: string;
+    apiKey: string;
+  };
+  sheets?: {
+    googleSheetCsvUrl: string;
+  };
+  recordatorioEntrega?: string;
+  content?: {
+    recordatorios: string[];
+    temaHoy: { titulo: string; detalle: string };
+    avisoEquipo: { titulo: string; detalle: string };
+    eventosProximos: Array<{
+      dia: string;
+      mes: string;
+      titulo: string;
+      detalle: string;
+    }>;
+    anunciosDespues: Array<{
+      dia: string;
+      mes: string;
+      titulo: string;
+      detalle: string;
+    }>;
+    versiculoDespues: { texto: string; cita: string };
+  };
+}
+
+const DEFAULT_CHANNEL_ID = 'UC78ofRM0f1O4Sg8TWOc6FHg';
+const DEFAULT_HANDLE = '@iglesiagrancomisionsansalv5614';
+const CACHE_TTL_MS = 30_000;
+
+let cachedStreams: { timestamp: number; data: StreamsPayload } | null = null;
+
+function getOverridesPath(): string {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(__dirname, 'data', 'signage-config.json');
+}
+
+function readOverrides(): RuntimeOverrides {
+  const filePath = getOverridesPath();
+  try {
+    if (!fs.existsSync(filePath)) return {};
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    return JSON.parse(raw) as RuntimeOverrides;
+  } catch {
+    return {};
+  }
+}
+
+function writeOverrides(next: RuntimeOverrides): void {
+  const filePath = getOverridesPath();
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(filePath, JSON.stringify(next, null, 2), 'utf-8');
+}
+
+function extractStreamEntries(html: string): {
+  channelId: string;
+  streams: StreamEntry[];
+} {
+  const channelMatch = html.match(/"externalId":"(UC[a-zA-Z0-9_-]{22})"/);
+  const channelId = channelMatch?.[1] ?? DEFAULT_CHANNEL_ID;
+
+  const dataMatch = html.match(/var ytInitialData = (\{.*?\});<\/script>/);
+  if (!dataMatch) {
+    return { channelId, streams: [] };
+  }
+
+  const data = JSON.parse(dataMatch[1]) as Record<string, unknown>;
+  const contentsObj = data.contents as
+    | {
+        twoColumnBrowseResultsRenderer?: {
+          tabs?: Array<{
+            tabRenderer?: {
+              selected?: boolean;
+              title?: string;
+              content?: {
+                richGridRenderer?: {
+                  contents?: Array<{
+                    richItemRenderer?: {
+                      content?: {
+                        lockupViewModel?: Record<string, unknown>;
+                        videoRenderer?: Record<string, unknown>;
+                      };
+                    };
+                  }>;
+                };
+              };
+            };
+          }>;
+        };
+      }
+    | undefined;
+
+  const tabs = contentsObj?.twoColumnBrowseResultsRenderer?.tabs ?? [];
+  const streamsTab =
+    tabs.find((t) => t.tabRenderer?.selected) ??
+    tabs.find((t) =>
+      /En directo|Streams|En vivo|Live/i.test(t.tabRenderer?.title ?? ''),
+    );
+
+  const gridContents =
+    streamsTab?.tabRenderer?.content?.richGridRenderer?.contents ?? [];
+
+  const streams: StreamEntry[] = [];
+
+  for (const item of gridContents) {
+    const content = item.richItemRenderer?.content;
+    if (!content) continue;
+
+    if (content.lockupViewModel) {
+      const vm = content.lockupViewModel as {
+        contentId?: string;
+        metadata?: {
+          lockupMetadataViewModel?: {
+            title?: { content?: string };
+            metadata?: {
+              contentMetadataViewModel?: {
+                metadataRows?: Array<{
+                  metadataParts?: Array<{
+                    text?: { content?: string };
+                  }>;
+                }>;
+              };
+            };
+          };
+        };
+        contentImage?: {
+          thumbnailViewModel?: {
+            overlays?: Array<{
+              thumbnailBottomOverlayViewModel?: {
+                badges?: Array<{
+                  thumbnailBadgeViewModel?: {
+                    text?: string;
+                    badgeStyle?: string;
+                  };
+                }>;
+              };
+            }>;
+          };
+        };
+      };
+
+      const videoId = vm.contentId;
+      if (!videoId) continue;
+
+      const title =
+        vm.metadata?.lockupMetadataViewModel?.title?.content ??
+        'Transmisión Iglesia Gran Comisión';
+
+      const rows =
+        vm.metadata?.lockupMetadataViewModel?.metadata
+          ?.contentMetadataViewModel?.metadataRows ?? [];
+      const parts = rows.flatMap(
+        (r) => r.metadataParts?.map((p) => p.text?.content ?? '') ?? [],
+      );
+      const publishedText =
+        parts.find((text) =>
+          /emitido|transmitido|en directo|viendo|watching|espectadores|streamed/i.test(
+            text,
+          ),
+        ) ??
+        parts[parts.length - 1] ??
+        '';
+
+      const badges =
+        vm.contentImage?.thumbnailViewModel?.overlays?.flatMap(
+          (o) =>
+            o.thumbnailBottomOverlayViewModel?.badges?.map(
+              (b) => b.thumbnailBadgeViewModel,
+            ) ?? [],
+        ) ?? [];
+
+      const isLive =
+        badges.some(
+          (b) =>
+            b?.badgeStyle === 'THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE' ||
+            /^(EN VIVO|EN DIRECTO|LIVE)$/i.test((b?.text ?? '').trim()),
+        ) || parts.some((text) => /\b(viendo|watching|espectadores)\b/i.test(text));
+
+      streams.push({ videoId, title, publishedText, isLive });
+    } else if (content.videoRenderer) {
+      const vr = content.videoRenderer as {
+        videoId?: string;
+        title?: { runs?: Array<{ text?: string }> };
+        publishedTimeText?: { simpleText?: string };
+        badges?: Array<{
+          metadataBadgeRenderer?: { style?: string; label?: string };
+        }>;
+        thumbnailOverlays?: Array<{
+          thumbnailOverlayTimeStatusRenderer?: { style?: string };
+        }>;
+      };
+
+      if (!vr.videoId) continue;
+      const title =
+        vr.title?.runs?.map((r) => r.text ?? '').join('') ||
+        'Transmisión Iglesia Gran Comisión';
+      const publishedText = vr.publishedTimeText?.simpleText ?? '';
+      const isLive = Boolean(
+        vr.badges?.some(
+          (b) =>
+            b.metadataBadgeRenderer?.style === 'BADGE_STYLE_TYPE_LIVE_NOW',
+        ) ||
+          vr.thumbnailOverlays?.some(
+            (o) => o.thumbnailOverlayTimeStatusRenderer?.style === 'LIVE',
+          ),
+      );
+
+      streams.push({
+        videoId: vr.videoId,
+        title,
+        publishedText,
+        isLive,
+      });
+    }
+
+    if (streams.length >= 10) break;
+  }
+
+  return { channelId, streams };
+}
+
+async function fetchChannelStreams(handle: string): Promise<StreamsPayload> {
+  const safeHandle = /^@[a-zA-Z0-9._-]+$/.test(handle)
+    ? handle
+    : DEFAULT_HANDLE;
+  const streamsUrl = `https://www.youtube.com/${safeHandle}/streams`;
+
+  if (
+    cachedStreams &&
+    Date.now() - cachedStreams.timestamp < CACHE_TTL_MS &&
+    cachedStreams.data.streamsUrl === streamsUrl
+  ) {
+    return cachedStreams.data;
+  }
+
+  const response = await fetch(streamsUrl, {
+    headers: {
+      'Accept-Language': 'es-SV,es;q=0.9',
+      'User-Agent':
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`YouTube streams responded with ${response.status}`);
+  }
+
+  const html = await response.text();
+  const { channelId, streams } = extractStreamEntries(html);
+  const liveItem = streams.find((s) => s.isLive) ?? null;
+  const latestStream = streams[0] ?? null;
+
+  const payload: StreamsPayload = {
+    channelId,
+    streamsUrl,
+    isLive: Boolean(liveItem),
+    liveVideoId: liveItem?.videoId ?? null,
+    liveTitle: liveItem?.title ?? null,
+    latestStream,
+    streams,
+  };
+
+  cachedStreams = { timestamp: Date.now(), data: payload };
+  return payload;
+}
+
+async function startServer() {
+  const app = express();
+  const port = Number(process.env.PORT) || 3000;
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const isProd = process.env.NODE_ENV === 'production';
+
+  app.use(express.json({ limit: '256kb' }));
+
+  app.get('/api/youtube/streams', async (req, res) => {
+    const overrides = readOverrides();
+    const rawHandle =
+      typeof req.query.handle === 'string'
+        ? req.query.handle
+        : (overrides.youtube?.channelHandle ?? DEFAULT_HANDLE);
+
+    try {
+      const payload = await fetchChannelStreams(rawHandle);
+      res.json(payload);
+    } catch {
+      res.status(200).json({
+        channelId: overrides.youtube?.channelId ?? DEFAULT_CHANNEL_ID,
+        streamsUrl: `https://www.youtube.com/${DEFAULT_HANDLE}/streams`,
+        isLive: false,
+        liveVideoId: null,
+        liveTitle: null,
+        latestStream: null,
+        streams: [],
+      } satisfies StreamsPayload);
+    }
+  });
+
+  app.get('/api/config', (_req, res) => {
+    res.json(readOverrides());
+  });
+
+  app.put('/api/config', (req, res) => {
+    const body = req.body as RuntimeOverrides;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      res.status(400).json({ error: 'Configuración inválida' });
+      return;
+    }
+
+    try {
+      writeOverrides(body);
+      cachedStreams = null;
+      res.json({ ok: true, config: body });
+    } catch {
+      res.status(500).json({ error: 'No se pudo guardar la configuración' });
+    }
+  });
+
+  app.delete('/api/config', (_req, res) => {
+    try {
+      const filePath = getOverridesPath();
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+      cachedStreams = null;
+      res.json({ ok: true });
+    } catch {
+      res.status(500).json({ error: 'No se pudo restablecer la configuración' });
+    }
+  });
+
+  if (!isProd) {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distDir = path.resolve(__dirname, 'dist');
+    app.use(express.static(distDir));
+    app.get('*', (_req, res) => {
+      const indexFile = path.join(distDir, 'index.html');
+      if (fs.existsSync(indexFile)) {
+        res.sendFile(indexFile);
+      } else {
+        res.status(404).send('Build not found');
+      }
+    });
+  }
+
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`Pantalla IGC running on http://0.0.0.0:${port}`);
+  });
+}
+
+void startServer();

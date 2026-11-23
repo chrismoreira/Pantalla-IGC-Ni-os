@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+data/
+firetv-apk/.gradle/
+firetv-apk/build/
+firetv-apk/app/build/
+firetv-apk/local.properties

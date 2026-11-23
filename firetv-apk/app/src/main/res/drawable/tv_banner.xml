@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <size
+                android:width="320dp"
+                android:height="180dp" />
+            <solid android:color="#16403D" />
+        </shape>
+    </item>
+    <item
+        android:bottom="28dp"
+        android:left="36dp"
+        android:right="36dp"
+        android:top="24dp">
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/igc_logo_blanco" />
+    </item>
+    <item
+        android:height="14dp"
+        android:gravity="bottom">
+        <shape android:shape="rectangle">
+            <solid android:color="#4DB8AF" />
+        </shape>
+    </item>
+</layer-list>

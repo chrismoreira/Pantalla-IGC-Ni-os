@@ -75,10 +75,11 @@ export interface ServiceWindowInfo {
 export function getServiceWindowState(
   nowMs: number = Date.now(),
   streamEndedToday: boolean = false,
+  schedule = CONFIG.schedule,
 ): ServiceWindowInfo {
   const sv = getElSalvadorNow(nowMs);
   const { serviceDay, serviceHour, serviceMinute, durationMinutes, preWindowMinutes } =
-    CONFIG.schedule;
+    schedule;
 
   // Days offset to get the service day of the current week (e.g. Sunday = 0)
   const diffToServiceDay = serviceDay - sv.weekday;
@@ -94,7 +95,6 @@ export function getServiceWindowState(
   const preWindowMs = preWindowMinutes * 60_000;
   const weekMs = 7 * 24 * 60 * 60_000;
 
-  const candidatePreStartMs = candidateStartMs - preWindowMs;
   const candidateEndMs = candidateStartMs + durationMs;
 
   // Determine the upcoming or active service cycle
@@ -146,8 +146,8 @@ export function formatDateEs(sv: ElSalvadorWallTime): string {
   return `${WEEKDAYS_ES[sv.weekday]}, ${sv.day} de ${MONTHS_ES[sv.month]}`;
 }
 
-export function formatServiceTimeLabel(): string {
-  const { serviceDay, serviceHour, serviceMinute } = CONFIG.schedule;
+export function formatServiceTimeLabel(schedule = CONFIG.schedule): string {
+  const { serviceDay, serviceHour, serviceMinute } = schedule;
   const period = serviceHour >= 12 ? 'p. m.' : 'a. m.';
   const hour12 = serviceHour % 12 === 0 ? 12 : serviceHour % 12;
   const min = String(serviceMinute).padStart(2, '0');

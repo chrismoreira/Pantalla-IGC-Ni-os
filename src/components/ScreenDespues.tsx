@@ -11,16 +11,20 @@ interface ScreenDespuesProps {
   svNow: ElSalvadorWallTime;
   content: SignageContent;
   modeSetting: ModeSetting;
+  schedule?: typeof CONFIG.schedule;
+  recordatorioEntrega?: string;
 }
 
 export function ScreenDespues({
   svNow,
   content,
   modeSetting,
+  schedule = CONFIG.schedule,
+  recordatorioEntrega = CONFIG.recordatorioEntrega,
 }: ScreenDespuesProps) {
   const clockLabel = formatClock12h(svNow);
   const dateLabel = formatDateEs(svNow);
-  const nextServiceLabel = formatServiceTimeLabel();
+  const nextServiceLabel = formatServiceTimeLabel(schedule);
   const anuncios = content.anunciosDespues.slice(0, 3);
 
   return (
@@ -34,13 +38,13 @@ export function ScreenDespues({
         style={{ borderColor: 'rgba(250, 242, 230, 0.16)' }}
       >
         <div className="flex items-center gap-6">
-          <IgcLogo size={68} />
+          <IgcLogo height={68} variant="on-dark" />
           <div>
             <p
-              className="font-display text-[21px] font-bold uppercase tracking-wide"
+              className="font-display text-[20px] font-bold uppercase tracking-wide"
               style={{ color: 'var(--arena)' }}
             >
-              {CONFIG.churchName} · {CONFIG.city}
+              Ministerio infantil · {CONFIG.city}
             </p>
             <h1
               className="font-display text-[36px] font-extrabold leading-tight"
@@ -81,7 +85,7 @@ export function ScreenDespues({
             ¡Gracias por servir hoy!
           </h2>
           <p className="font-body text-[27px] font-semibold leading-[1.4] mt-3">
-            {CONFIG.recordatorioEntrega}
+            {recordatorioEntrega}
           </p>
         </div>
 

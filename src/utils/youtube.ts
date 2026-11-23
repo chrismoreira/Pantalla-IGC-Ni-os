@@ -1,10 +1,61 @@
 import { isTimestampInWindow } from './time';
 
+export interface StreamEntry {
+  videoId: string;
+  title: string;
+  publishedText: string;
+  isLive: boolean;
+}
+
 export interface YouTubeLiveStatus {
   isLive: boolean;
   liveVideoId: string | null;
   liveTitle: string | null;
+  latestStream: StreamEntry | null;
+  streams: StreamEntry[];
   streamEndedToday: boolean;
+}
+
+export async function fetchChannelStreams(
+  channelHandle: string,
+): Promise<Omit<YouTubeLiveStatus, 'streamEndedToday'>> {
+  try {
+    const res = await fetch(
+      `/api/youtube/streams?handle=${encodeURIComponent(channelHandle)}`,
+      { cache: 'no-store' },
+    );
+    if (!res.ok) {
+      return {
+        isLive: false,
+        liveVideoId: null,
+        liveTitle: null,
+        latestStream: null,
+        streams: [],
+      };
+    }
+    const data = (await res.json()) as {
+      isLive?: boolean;
+      liveVideoId?: string | null;
+      liveTitle?: string | null;
+      latestStream?: StreamEntry | null;
+      streams?: StreamEntry[];
+    };
+    return {
+      isLive: Boolean(data.isLive),
+      liveVideoId: data.liveVideoId ?? null,
+      liveTitle: data.liveTitle ?? null,
+      latestStream: data.latestStream ?? null,
+      streams: Array.isArray(data.streams) ? data.streams : [],
+    };
+  } catch {
+    return {
+      isLive: false,
+      liveVideoId: null,
+      liveTitle: null,
+      latestStream: null,
+      streams: [],
+    };
+  }
 }
 
 export function buildYouTubeEmbedUrl(
@@ -72,6 +123,8 @@ export async function pollYouTubeLiveStatus(
       isLive: false,
       liveVideoId: null,
       liveTitle: null,
+      latestStream: null,
+      streams: [],
       streamEndedToday: false,
     };
   }
@@ -94,6 +147,8 @@ export async function pollYouTubeLiveStatus(
         isLive: false,
         liveVideoId: null,
         liveTitle: null,
+        latestStream: null,
+        streams: [],
         streamEndedToday: false,
       };
     }
@@ -108,6 +163,8 @@ export async function pollYouTubeLiveStatus(
         isLive: false,
         liveVideoId: null,
         liveTitle: null,
+        latestStream: null,
+        streams: [],
         streamEndedToday: false,
       };
     }
@@ -123,6 +180,8 @@ export async function pollYouTubeLiveStatus(
         isLive: false,
         liveVideoId: null,
         liveTitle: null,
+        latestStream: null,
+        streams: [],
         streamEndedToday: false,
       };
     }
@@ -142,6 +201,8 @@ export async function pollYouTubeLiveStatus(
         isLive: true,
         liveVideoId: activeStream.id,
         liveTitle: activeStream.snippet?.title ?? null,
+        latestStream: null,
+        streams: [],
         streamEndedToday: false,
       };
     }
@@ -158,6 +219,8 @@ export async function pollYouTubeLiveStatus(
       isLive: false,
       liveVideoId: null,
       liveTitle: null,
+      latestStream: null,
+      streams: [],
       streamEndedToday: endedInServiceWindow,
     };
   } catch {
@@ -165,6 +228,8 @@ export async function pollYouTubeLiveStatus(
       isLive: false,
       liveVideoId: null,
       liveTitle: null,
+      latestStream: null,
+      streams: [],
       streamEndedToday: false,
     };
   }

@@ -40,6 +40,8 @@ export interface SignageConfig {
   };
   youtube: {
     channelId: string;
+    channelHandle: string;
+    streamsUrl: string;
     apiKey: string;
     pollIntervalMs: number;
   };
@@ -66,6 +68,8 @@ export const CONFIG: SignageConfig = {
   },
   youtube: {
     channelId: 'UC78ofRM0f1O4Sg8TWOc6FHg',
+    channelHandle: '@iglesiagrancomisionsansalv5614',
+    streamsUrl: 'https://www.youtube.com/@iglesiagrancomisionsansalv5614/streams',
     apiKey: '',
     pollIntervalMs: 90_000,
   },
@@ -152,3 +156,40 @@ export const CONFIG: SignageConfig = {
     },
   },
 };
+
+export interface RuntimeOverrides {
+  schedule?: SignageConfig['schedule'];
+  youtube?: {
+    channelId: string;
+    channelHandle: string;
+    streamsUrl: string;
+    apiKey: string;
+  };
+  sheets?: {
+    googleSheetCsvUrl: string;
+  };
+  recordatorioEntrega?: string;
+  content?: SignageContent;
+}
+
+export function mergeWithRuntimeConfig(
+  overrides: RuntimeOverrides | null | undefined,
+): SignageConfig {
+  if (!overrides) return CONFIG;
+  return {
+    ...CONFIG,
+    schedule: overrides.schedule ?? CONFIG.schedule,
+    youtube: {
+      ...CONFIG.youtube,
+      ...(overrides.youtube ?? {}),
+    },
+    sheets: {
+      ...CONFIG.sheets,
+      ...(overrides.sheets ?? {}),
+    },
+    recordatorioEntrega:
+      overrides.recordatorioEntrega ?? CONFIG.recordatorioEntrega,
+    defaults: overrides.content ?? CONFIG.defaults,
+  };
+}
+

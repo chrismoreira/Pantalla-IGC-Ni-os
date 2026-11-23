@@ -13,6 +13,7 @@ interface ScreenAntesProps {
   countdownTargetMs: number;
   content: SignageContent;
   modeSetting: ModeSetting;
+  schedule?: typeof CONFIG.schedule;
 }
 
 export function ScreenAntes({
@@ -20,11 +21,12 @@ export function ScreenAntes({
   countdownTargetMs,
   content,
   modeSetting,
+  schedule = CONFIG.schedule,
 }: ScreenAntesProps) {
   const countdown = formatCountdown(countdownTargetMs, svNow.utcMs);
   const clockLabel = formatClock12h(svNow);
   const dateLabel = formatDateEs(svNow);
-  const serviceTimeLabel = formatServiceTimeLabel();
+  const serviceTimeLabel = formatServiceTimeLabel(schedule);
 
   const showHours = countdown.days > 0 || Number(countdown.hours) > 0;
   const countdownText = showHours
@@ -39,13 +41,13 @@ export function ScreenAntes({
       {/* Cabecera */}
       <header className="flex items-center justify-between border-b pb-6" style={{ borderColor: 'rgba(22, 64, 61, 0.16)' }}>
         <div className="flex items-center gap-6">
-          <IgcLogo size={72} />
+          <IgcLogo height={64} variant="on-light" />
           <div>
             <p
-              className="font-display text-[22px] font-bold tracking-wide uppercase"
+              className="font-display text-[20px] font-bold tracking-wide uppercase"
               style={{ color: 'var(--verde2)' }}
             >
-              {CONFIG.churchName} · {CONFIG.city}
+              Ministerio infantil · {CONFIG.city}
             </p>
             <h1
               className="font-display text-[38px] font-extrabold leading-tight tracking-tight"

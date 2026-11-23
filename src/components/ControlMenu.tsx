@@ -58,6 +58,19 @@ export function ControlMenu({
         return;
       }
 
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+        const active = document.activeElement;
+        if (
+          active instanceof HTMLButtonElement &&
+          menuRef.current?.contains(active)
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          active.click();
+        }
+        return;
+      }
+
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         const focusables = Array.from(
           menuRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? [],

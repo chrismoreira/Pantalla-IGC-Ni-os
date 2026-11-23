@@ -1,12 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AdminPanel } from './components/AdminPanel';
 import { ControlMenu } from './components/ControlMenu';
 import { ScreenAntes } from './components/ScreenAntes';
 import { ScreenDespues } from './components/ScreenDespues';
 import { ScreenVivo } from './components/ScreenVivo';
-import { ActiveScreen, CONFIG, ModeSetting, SignageContent } from './config';
+import {
+  ActiveScreen,
+  CONFIG,
+  mergeWithRuntimeConfig,
+  ModeSetting,
+  RuntimeOverrides,
+  SignageContent,
+} from './config';
 import { fetchSignageFromGoogleSheet } from './utils/sheets';
 import { getElSalvadorNow, getServiceWindowState } from './utils/time';
-import { pollYouTubeLiveStatus, YouTubeLiveStatus } from './utils/youtube';
+import {
+  fetchChannelStreams,
+  pollYouTubeLiveStatus,
+  YouTubeLiveStatus,
+} from './utils/youtube';
 
 const STORAGE_KEY = 'igc_pantalla_cuidado_ninos_v1';
 
@@ -15,6 +27,16 @@ interface PersistedState {
   currentMoment: number;
   showTeamAlert: boolean;
   muted: boolean;
+}
+
+function isAdminRoute(): boolean {
+  try {
+    const path = window.location.pathname.toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+    return path === '/admin' || path.startsWith('/admin/') || params.get('admin') === '1';
+  } catch {
+    return false;
+  }
 }
 
 function readUrlModeParam(): ModeSetting | null {
@@ -80,6 +102,7 @@ function saveState(state: PersistedState): void {
 }
 
 export default function App() {
+  const [adminView] = useState<boolean>(() => isAdminRoute());
   const [initialState] = useState<PersistedState>(() => loadInitialState());
   const [modeSetting, setModeSetting] = useState<ModeSetting>(
     initialState.modeSetting,
@@ -99,26 +122,70 @@ export default function App() {
     return Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
   });
 
-  const [content, setContent] = useState<SignageContent>(CONFIG.defaults);
+  const [runtimeOverrides, setRuntimeOverrides] = useState<RuntimeOverrides>({});
+  const [overridesLoaded, setOverridesLoaded] = useState<boolean>(false);
+  const activeConfig = useMemo(
+    () => mergeWithRuntimeConfig(runtimeOverrides),
+    [runtimeOverrides],
+  );
+
+  const [sheetContent, setSheetContent] = useState<SignageContent | null>(null);
+  const effectiveContent = sheetContent ?? activeConfig.defaults;
+
   const [ytStatus, setYtStatus] = useState<YouTubeLiveStatus>({
     isLive: false,
     liveVideoId: null,
     liveTitle: null,
+    latestStream: null,
+    streams: [],
     streamEndedToday: false,
   });
 
-  // Persist state in localStorage whenever settings change
+  // Poll /api/config every 30s so admin panel edits sync to the TV automatically
   useEffect(() => {
+    let cancelled = false;
+    const loadServerConfig = async () => {
+      try {
+        const res = await fetch('/api/config', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = (await res.json()) as RuntimeOverrides;
+        if (!cancelled && data && typeof data === 'object') {
+          setRuntimeOverrides(data);
+        }
+      } catch {
+        // Ignore if static hosting without backend
+      } finally {
+        if (!cancelled) {
+          setOverridesLoaded(true);
+        }
+      }
+    };
+
+    void loadServerConfig();
+    const interval = window.setInterval(() => {
+      void loadServerConfig();
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  // Persist TV remote state in localStorage
+  useEffect(() => {
+    if (adminView) return;
     saveState({
       modeSetting,
       currentMoment,
       showTeamAlert,
       muted,
     });
-  }, [modeSetting, currentMoment, showTeamAlert, muted]);
+  }, [adminView, modeSetting, currentMoment, showTeamAlert, muted]);
 
   // Proportional 1920x1080 stage scaling
   useEffect(() => {
+    if (adminView) return;
     const updateScale = () => {
       const scale = Math.min(
         window.innerWidth / 1920,
@@ -129,7 +196,7 @@ export default function App() {
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
-  }, []);
+  }, [adminView]);
 
   // 1-second clock & countdown ticker
   useEffect(() => {
@@ -141,8 +208,13 @@ export default function App() {
 
   const svNow = useMemo(() => getElSalvadorNow(nowMs), [nowMs]);
   const windowInfo = useMemo(
-    () => getServiceWindowState(nowMs, ytStatus.streamEndedToday),
-    [nowMs, ytStatus.streamEndedToday],
+    () =>
+      getServiceWindowState(
+        nowMs,
+        ytStatus.streamEndedToday,
+        activeConfig.schedule,
+      ),
+    [nowMs, ytStatus.streamEndedToday, activeConfig.schedule],
   );
 
   const effectiveScreen: ActiveScreen =
@@ -150,62 +222,86 @@ export default function App() {
 
   // Google Sheets CSV polling (every 5 minutes)
   useEffect(() => {
-    if (!CONFIG.sheets.googleSheetCsvUrl.trim()) {
-      setContent(CONFIG.defaults);
+    const csvUrl = activeConfig.sheets.googleSheetCsvUrl.trim();
+    if (!csvUrl) {
+      setSheetContent(null);
       return;
     }
 
     let cancelled = false;
     const loadSheet = async () => {
       const nextContent = await fetchSignageFromGoogleSheet(
-        CONFIG.sheets.googleSheetCsvUrl,
-        CONFIG.defaults,
+        csvUrl,
+        activeConfig.defaults,
       );
       if (!cancelled) {
-        setContent(nextContent);
+        setSheetContent(nextContent);
       }
     };
 
     void loadSheet();
     const interval = window.setInterval(() => {
       void loadSheet();
-    }, CONFIG.sheets.pollIntervalMs);
+    }, activeConfig.sheets.pollIntervalMs);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [
+    activeConfig.sheets.googleSheetCsvUrl,
+    activeConfig.sheets.pollIntervalMs,
+    activeConfig.defaults,
+  ]);
 
-  // Optional YouTube Data API v3 polling (every 90 seconds)
-  useEffect(() => {
-    if (!CONFIG.youtube.apiKey.trim()) {
-      return;
-    }
+  const refreshStreams = useCallback(async () => {
+    const channelData = await fetchChannelStreams(
+      activeConfig.youtube.channelHandle,
+    );
 
-    let cancelled = false;
-    const checkYouTube = async () => {
-      const result = await pollYouTubeLiveStatus(
-        CONFIG.youtube.channelId,
-        CONFIG.youtube.apiKey,
+    if (activeConfig.youtube.apiKey.trim()) {
+      const apiResult = await pollYouTubeLiveStatus(
+        activeConfig.youtube.channelId,
+        activeConfig.youtube.apiKey,
         windowInfo.serviceStartMs,
         windowInfo.serviceEndMs,
       );
-      if (!cancelled) {
-        setYtStatus(result);
-      }
-    };
+      setYtStatus({
+        isLive: apiResult.isLive || channelData.isLive,
+        liveVideoId: apiResult.liveVideoId ?? channelData.liveVideoId,
+        liveTitle: apiResult.liveTitle ?? channelData.liveTitle,
+        latestStream: channelData.latestStream,
+        streams: channelData.streams,
+        streamEndedToday: apiResult.streamEndedToday,
+      });
+      return;
+    }
 
-    void checkYouTube();
+    setYtStatus({
+      isLive: channelData.isLive,
+      liveVideoId: channelData.liveVideoId,
+      liveTitle: channelData.liveTitle,
+      latestStream: channelData.latestStream,
+      streams: channelData.streams,
+      streamEndedToday: false,
+    });
+  }, [
+    activeConfig.youtube.channelHandle,
+    activeConfig.youtube.channelId,
+    activeConfig.youtube.apiKey,
+    windowInfo.serviceStartMs,
+    windowInfo.serviceEndMs,
+  ]);
+
+  // Poll channel /streams endpoint + optional YouTube Data API v3 (every 90 seconds)
+  useEffect(() => {
+    void refreshStreams();
     const interval = window.setInterval(() => {
-      void checkYouTube();
-    }, CONFIG.youtube.pollIntervalMs);
+      void refreshStreams();
+    }, activeConfig.youtube.pollIntervalMs);
 
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [windowInfo.serviceStartMs, windowInfo.serviceEndMs]);
+    return () => window.clearInterval(interval);
+  }, [refreshStreams, activeConfig.youtube.pollIntervalMs]);
 
   const handlePrevMoment = useCallback(() => {
     setCurrentMoment((prev) => Math.max(0, prev - 1));
@@ -227,6 +323,7 @@ export default function App() {
 
   // Fire TV remote control & keyboard listener when menu is closed
   useEffect(() => {
+    if (adminView) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (menuOpen) return;
 
@@ -256,7 +353,42 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [menuOpen, handlePrevMoment, handleNextMoment, handleToggleTeamAlert]);
+  }, [
+    adminView,
+    menuOpen,
+    handlePrevMoment,
+    handleNextMoment,
+    handleToggleTeamAlert,
+  ]);
+
+  if (adminView) {
+    if (!overridesLoaded) {
+      return (
+        <div className="admin-shell flex items-center justify-center min-h-screen">
+          <p className="font-display text-lg font-bold" style={{ color: 'var(--arena)' }}>
+            Cargando configuración...
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <AdminPanel
+        svNow={svNow}
+        autoScreen={windowInfo.autoScreen}
+        activeConfig={activeConfig}
+        effectiveContent={effectiveContent}
+        ytStatus={ytStatus}
+        onRefreshStreams={refreshStreams}
+        onSavedConfig={(next) => setRuntimeOverrides(next)}
+        onResetConfig={async () => {
+          await fetch('/api/config', { method: 'DELETE' });
+          setRuntimeOverrides({});
+          setSheetContent(null);
+        }}
+      />
+    );
+  }
 
   return (
     <div id="viewport">
@@ -270,21 +402,31 @@ export default function App() {
           <ScreenAntes
             svNow={svNow}
             countdownTargetMs={windowInfo.countdownTargetMs}
-            content={content}
+            content={effectiveContent}
             modeSetting={modeSetting}
+            schedule={activeConfig.schedule}
           />
         )}
 
         {effectiveScreen === 'vivo' && (
           <ScreenVivo
             svNow={svNow}
-            content={content}
+            content={effectiveContent}
             currentMoment={currentMoment}
             onSelectMoment={setCurrentMoment}
             showTeamAlert={showTeamAlert}
             muted={muted}
-            liveVideoId={ytStatus.liveVideoId}
-            liveTitle={ytStatus.liveTitle}
+            liveVideoId={
+              ytStatus.isLive
+                ? ytStatus.liveVideoId
+                : (ytStatus.latestStream?.videoId ?? null)
+            }
+            liveTitle={
+              ytStatus.isLive
+                ? ytStatus.liveTitle
+                : (ytStatus.latestStream?.title ?? null)
+            }
+            isLiveNow={ytStatus.isLive}
             modeSetting={modeSetting}
           />
         )}
@@ -292,8 +434,10 @@ export default function App() {
         {effectiveScreen === 'despues' && (
           <ScreenDespues
             svNow={svNow}
-            content={content}
+            content={effectiveContent}
             modeSetting={modeSetting}
+            schedule={activeConfig.schedule}
+            recordatorioEntrega={activeConfig.recordatorioEntrega}
           />
         )}
 

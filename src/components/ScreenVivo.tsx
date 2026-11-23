@@ -13,6 +13,7 @@ interface ScreenVivoProps {
   muted: boolean;
   liveVideoId: string | null;
   liveTitle: string | null;
+  isLiveNow: boolean;
   modeSetting: ModeSetting;
 }
 
@@ -25,6 +26,7 @@ export function ScreenVivo({
   muted,
   liveVideoId,
   liveTitle,
+  isLiveNow,
   modeSetting,
 }: ScreenVivoProps) {
   const clockLabel = formatClock12h(svNow);
@@ -41,9 +43,9 @@ export function ScreenVivo({
       style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
     >
       {/* Cabecera */}
-      <header className="flex items-center justify-between h-[72px]">
-        <div className="flex items-center gap-5 min-w-0">
-          <IgcLogo size={60} />
+      <header className="flex items-center justify-between h-[76px]">
+        <div className="flex items-center gap-6 min-w-0">
+          <IgcLogo height={62} variant="on-dark" />
           <div className="min-w-0">
             <div className="flex items-center gap-3">
               <span
@@ -53,10 +55,10 @@ export function ScreenVivo({
                 {CONFIG.ministryName}
               </span>
               <span
-                className="font-body text-[22px] font-medium"
+                className="font-body text-[21px] font-medium"
                 style={{ color: 'var(--arena)' }}
               >
-                · {CONFIG.churchName}
+                · {CONFIG.city}
               </span>
             </div>
             {liveTitle && (
@@ -64,7 +66,8 @@ export function ScreenVivo({
                 className="font-body text-[19px] font-medium truncate max-w-[1050px]"
                 style={{ color: 'var(--turquesa)' }}
               >
-                Transmisión: {liveTitle}
+                {isLiveNow ? 'En vivo: ' : 'Última transmisión: '}
+                {liveTitle}
               </p>
             )}
           </div>
