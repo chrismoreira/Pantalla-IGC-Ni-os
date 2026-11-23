@@ -8,11 +8,12 @@ android {
     compileSdk = 34
 
     defaultConfig {
+        val ciVersionCode = (project.findProperty("APP_VERSION_CODE") as String?)?.toIntOrNull() ?: 1
         applicationId = "org.igc.cuidadoninos.tv"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = ciVersionCode
+        versionName = "1.0.$ciVersionCode"
     }
 
     buildTypes {

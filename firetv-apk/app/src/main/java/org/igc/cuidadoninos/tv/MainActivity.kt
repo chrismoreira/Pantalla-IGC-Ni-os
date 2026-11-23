@@ -1,6 +1,7 @@
 package org.igc.cuidadoninos.tv
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -17,6 +18,12 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
+import org.json.JSONObject
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
@@ -24,6 +31,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private var customVideoView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private val updateExecutor = Executors.newSingleThreadExecutor()
+    private var updatePromptedInSession = false
 
     private val kioskUrl: String by lazy {
         getString(R.string.kiosk_url)
@@ -91,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(rootContainer)
         enableImmersiveMode()
         webView.loadUrl(kioskUrl)
+        checkGitHubReleaseForUpdate()
     }
 
     override fun onResume() {
@@ -114,8 +124,91 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        updateExecutor.shutdownNow()
         webView.destroy()
         super.onDestroy()
+    }
+
+    private fun checkGitHubReleaseForUpdate() {
+        if (updatePromptedInSession) return
+        val releaseApi = getString(R.string.github_release_api)
+        if (releaseApi.isBlank()) return
+
+        updateExecutor.execute {
+            try {
+                val localVersionCode = getLocalVersionCode()
+                val conn = (URL(releaseApi).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    setRequestProperty("Accept", "application/vnd.github+json")
+                    setRequestProperty("User-Agent", "PantallaIGC-FireTV")
+                }
+                if (conn.responseCode != 200) return@execute
+
+                val jsonText = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(jsonText)
+                val body = json.optString("body", "")
+                val vcMatch = Regex("\\[vc:(\\d+)]").find(body) ?: return@execute
+                val remoteVersionCode = vcMatch.groupValues[1].toLongOrNull() ?: return@execute
+
+                if (remoteVersionCode <= localVersionCode) return@execute
+
+                val assets = json.optJSONArray("assets") ?: return@execute
+                var apkDownloadUrl: String? = null
+                for (i in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(i)
+                    if (asset.optString("name").endsWith(".apk")) {
+                        apkDownloadUrl = asset.optString("browser_download_url")
+                        break
+                    }
+                }
+                if (apkDownloadUrl.isNullOrBlank()) return@execute
+
+                val updatesDir = File(cacheDir, "updates").apply { mkdirs() }
+                val apkFile = File(updatesDir, "Pantalla-IGC-FireTV-update.apk")
+
+                val apkConn = (URL(apkDownloadUrl).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    setRequestProperty("User-Agent", "PantallaIGC-FireTV")
+                }
+                if (apkConn.responseCode != 200) return@execute
+
+                apkConn.inputStream.use { input ->
+                    apkFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                updatePromptedInSession = true
+                runOnUiThread {
+                    val uri = FileProvider.getUriForFile(
+                        this,
+                        "${packageName}.fileprovider",
+                        apkFile
+                    )
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(intent)
+                }
+            } catch (_: Exception) {
+                // Ignora fallos de red silenciosamente para no interrumpir la pantalla
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun getLocalVersionCode(): Long {
+        val pkgInfo = packageManager.getPackageInfo(packageName, 0)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            pkgInfo.longVersionCode
+        } else {
+            pkgInfo.versionCode.toLong()
+        }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

@@ -33,7 +33,7 @@ jobs:
 
       - name: Build Fire TV APK
         working-directory: firetv-apk
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug -PAPP_VERSION_CODE=${{ github.run_number }} --no-daemon
 
       - name: Prepare APK filename
         run: cp firetv-apk/app/build/outputs/apk/debug/app-debug.apk Pantalla-IGC-FireTV.apk
@@ -49,7 +49,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: firetv-latest
-          name: Pantalla IGC Fire TV
-          body: APK nativa gratuita para Amazon Fire TV
+          name: Pantalla IGC Fire TV (v1.0.${{ github.run_number }})
+          body: "APK nativa gratuita para Amazon Fire TV [vc:${{ github.run_number }}]"
           files: Pantalla-IGC-FireTV.apk
           make_latest: true
