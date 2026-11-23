@@ -9,12 +9,12 @@
         </shape>
     </item>
     <item
-        android:bottom="28dp"
-        android:left="36dp"
-        android:right="36dp"
-        android:top="24dp">
+        android:bottom="34dp"
+        android:left="60dp"
+        android:right="60dp"
+        android:top="26dp">
         <bitmap
-            android:gravity="center"
+            android:gravity="fill"
             android:src="@drawable/igc_logo_blanco" />
     </item>
     <item
