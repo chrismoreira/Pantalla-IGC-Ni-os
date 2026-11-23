@@ -23,7 +23,7 @@ export async function fetchChannelStreams(
 ): Promise<Omit<YouTubeLiveStatus, 'streamEndedToday'>> {
   try {
     const res = await fetch(
-      `/api/youtube/streams?target=${encodeURIComponent(channelTarget)}`,
+      `/api/youtube/streams?target=${encodeURIComponent(channelTarget)}&t=${Date.now()}`,
       { cache: 'no-store' },
     );
     if (!res.ok) {

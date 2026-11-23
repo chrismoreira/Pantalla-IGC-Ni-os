@@ -180,6 +180,7 @@ export interface RuntimeOverrides {
   };
   recordatorioEntrega?: string;
   forcedMode?: ModeSetting;
+  updatedAt?: number;
   features?: {
     showTemasYAnuncios?: boolean;
     showMomentosSidebar?: boolean;

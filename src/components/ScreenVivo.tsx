@@ -132,20 +132,20 @@ export function ScreenVivo({
             aria-hidden="true"
           />
           <div
-            className="relative w-full h-full rounded-[16px] overflow-hidden border-[4px]"
+            className="relative w-full h-full border-[4px]"
             style={{
               backgroundColor: 'var(--verde3)',
               borderColor: 'var(--turquesa)',
             }}
           >
             <iframe
-              key={`${liveVideoId ?? 'channel'}-${muted ? 'm1' : 'm0'}`}
+              key={`${channelId}-${liveVideoId ?? 'channel'}-${muted ? 'm1' : 'm0'}`}
               src={embedUrl}
               title="Transmisión en vivo Iglesia Gran Comisión"
               width={playerWidth}
               height={playerHeight}
               className="w-full h-full border-0 block"
-              allow="autoplay; encrypted-media; picture-in-picture"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowFullScreen
               referrerPolicy="strict-origin-when-cross-origin"
             />

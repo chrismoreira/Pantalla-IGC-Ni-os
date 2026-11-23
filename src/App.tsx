@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminPanel } from './components/AdminPanel';
 import { ControlMenu } from './components/ControlMenu';
 import { ScreenAntes } from './components/ScreenAntes';
@@ -141,16 +141,40 @@ export default function App() {
     streamEndedToday: false,
   });
 
-  // Poll /api/config every 30s so admin panel edits sync to the TV automatically
+  const lastConfigJsonRef = useRef<string>('');
+  const lastUpdatedAtRef = useRef<number | null>(null);
+
+  // Poll /api/config every 5s so admin panel edits sync to the TV almost immediately
   useEffect(() => {
     let cancelled = false;
+    const urlMode = readUrlModeParam();
+
     const loadServerConfig = async () => {
       try {
-        const res = await fetch('/api/config', { cache: 'no-store' });
+        const res = await fetch(`/api/config?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
         if (!res.ok) return;
         const data = (await res.json()) as RuntimeOverrides;
         if (!cancelled && data && typeof data === 'object') {
-          setRuntimeOverrides(data);
+          const signature = JSON.stringify(data);
+          if (signature !== lastConfigJsonRef.current) {
+            lastConfigJsonRef.current = signature;
+            setRuntimeOverrides(data);
+
+            if (
+              typeof data.updatedAt === 'number' &&
+              lastUpdatedAtRef.current !== null &&
+              data.updatedAt > lastUpdatedAtRef.current &&
+              !urlMode &&
+              data.forcedMode
+            ) {
+              setModeSetting(data.forcedMode);
+            }
+            if (typeof data.updatedAt === 'number') {
+              lastUpdatedAtRef.current = data.updatedAt;
+            }
+          }
         }
       } catch {
         // Ignore if static hosting without backend
@@ -164,7 +188,7 @@ export default function App() {
     void loadServerConfig();
     const interval = window.setInterval(() => {
       void loadServerConfig();
-    }, 30_000);
+    }, 5_000);
 
     return () => {
       cancelled = true;

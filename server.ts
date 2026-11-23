@@ -40,6 +40,7 @@ interface RuntimeOverrides {
   };
   recordatorioEntrega?: string;
   forcedMode?: 'auto' | 'antes' | 'vivo' | 'despues';
+  updatedAt?: number;
   features?: {
     showTemasYAnuncios?: boolean;
     showMomentosSidebar?: boolean;
@@ -527,6 +528,7 @@ async function startServer() {
   app.use(express.json({ limit: '256kb' }));
 
   app.get('/api/youtube/streams', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     const overrides = readOverrides();
     const rawTarget =
       typeof req.query.target === 'string' && req.query.target.trim()
@@ -555,10 +557,12 @@ async function startServer() {
   });
 
   app.get('/api/config', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.json(readOverrides());
   });
 
   app.put('/api/config', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     const body = req.body as RuntimeOverrides;
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       res.status(400).json({ error: 'Configuración inválida' });
@@ -566,9 +570,13 @@ async function startServer() {
     }
 
     try {
-      writeOverrides(body);
+      const stamped: RuntimeOverrides = {
+        ...body,
+        updatedAt: Date.now(),
+      };
+      writeOverrides(stamped);
       cachedStreams = null;
-      res.json({ ok: true, config: body });
+      res.json({ ok: true, config: stamped });
     } catch {
       res.status(500).json({ error: 'No se pudo guardar la configuración' });
     }

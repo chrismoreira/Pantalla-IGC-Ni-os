@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private val updateExecutor = Executors.newSingleThreadExecutor()
     private var updatePromptedInSession = false
+    private var lastUpdateCheckMs = 0L
 
     private val kioskUrl: String by lazy {
         getString(R.string.kiosk_url)
@@ -45,12 +46,12 @@ class MainActivity : AppCompatActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         rootContainer = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#0D2725"))
+            setBackgroundColor(Color.TRANSPARENT)
         }
 
         webView = WebView(this).apply {
-            setBackgroundColor(Color.parseColor("#0D2725"))
-            setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            // Fondo transparente y sin LAYER_TYPE_HARDWARE para no tapar ni poner en negro la capa de video en Fire OS
+            setBackgroundColor(Color.TRANSPARENT)
             isFocusable = true
             isFocusableInTouchMode = true
 
@@ -82,7 +83,13 @@ class MainActivity : AppCompatActivity() {
                     if (view == null) return
                     customVideoView = view
                     customViewCallback = callback
-                    rootContainer.addView(view)
+                    rootContainer.addView(
+                        view,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                        )
+                    )
                     webView.visibility = View.GONE
                 }
 
@@ -96,7 +103,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        rootContainer.addView(webView)
+        rootContainer.addView(
+            webView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
         setContentView(rootContainer)
         enableImmersiveMode()
         webView.loadUrl(kioskUrl)
@@ -110,6 +123,7 @@ class MainActivity : AppCompatActivity() {
         if (webView.url == null || webView.url == "about:blank") {
             webView.loadUrl(kioskUrl)
         }
+        checkGitHubReleaseForUpdate()
     }
 
     override fun onPause() {
@@ -131,6 +145,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkGitHubReleaseForUpdate() {
         if (updatePromptedInSession) return
+        val now = System.currentTimeMillis()
+        if (now - lastUpdateCheckMs < 10 * 60 * 1000L) return
+        lastUpdateCheckMs = now
         val releaseApi = getString(R.string.github_release_api)
         if (releaseApi.isBlank()) return
 
