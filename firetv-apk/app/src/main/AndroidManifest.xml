@@ -34,8 +34,10 @@
 
         <activity
             android:name=".MainActivity"
+            android:banner="@drawable/tv_banner"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode"
             android:exported="true"
+            android:icon="@drawable/ic_igc_launcher"
             android:launchMode="singleTask"
             android:screenOrientation="landscape">
             <intent-filter>
