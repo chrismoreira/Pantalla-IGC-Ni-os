@@ -37,6 +37,8 @@ export interface SignageConfig {
     serviceMinute: number;
     durationMinutes: number; // 150 min (2h 30min)
     preWindowMinutes: number; // 90 min antes
+    /** Max minutes to keep `despues` after the live stream actually ended. */
+    postDespuesMinutes: number;
   };
   youtube: {
     channelId: string;
@@ -72,6 +74,7 @@ export const CONFIG: SignageConfig = {
     serviceMinute: 0,
     durationMinutes: 150,
     preWindowMinutes: 90,
+    postDespuesMinutes: 60,
   },
   youtube: {
     channelId: 'UC78ofRM0f1O4Sg8TWOc6FHg',
@@ -204,7 +207,10 @@ export function mergeWithRuntimeConfig(
   if (!overrides) return CONFIG;
   return {
     ...CONFIG,
-    schedule: overrides.schedule ?? CONFIG.schedule,
+    schedule: {
+      ...CONFIG.schedule,
+      ...(overrides.schedule ?? {}),
+    },
     youtube: {
       ...CONFIG.youtube,
       ...(overrides.youtube ?? {}),

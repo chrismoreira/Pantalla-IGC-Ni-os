@@ -418,8 +418,8 @@ export function AdminPanel({
               </p>
               <p className="font-body text-xs mt-1" style={{ color: 'var(--arena)' }}>
                 {ytStatus.streamEndedToday
-                  ? 'Transmisión finalizada en la ventana actual: en modo Automático pasa a Después tras 1 minuto.'
-                  : 'Detección automática activa (sin necesidad de API Key): al terminar el en vivo espera 1 minuto y cambia a Después.'}
+                  ? 'Transmisión finalizada en la ventana actual: en modo Automático pasa a Después tras 1 minuto, y vuelve a Antes a más tardar 1 hora después del fin del stream.'
+                  : 'Detección automática activa (sin necesidad de API Key): al terminar el en vivo espera 1 minuto, muestra Después como máximo 1 hora, y luego vuelve a Antes.'}
               </p>
             </div>
             <span
@@ -567,6 +567,26 @@ export function AdminPanel({
                   setSchedule({
                     ...schedule,
                     durationMinutes: Number(e.target.value),
+                  })
+                }
+                className="w-full rounded-lg px-3 py-2.5 text-sm font-medium tabular-nums"
+                style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
+              />
+            </label>
+
+            <label className="block">
+              <span className="font-display text-xs font-bold uppercase tracking-wider block mb-1.5" style={{ color: 'var(--arena)' }}>
+                Después máx. post-stream (min)
+              </span>
+              <input
+                type="number"
+                min={5}
+                max={180}
+                value={schedule.postDespuesMinutes ?? 60}
+                onChange={(e) =>
+                  setSchedule({
+                    ...schedule,
+                    postDespuesMinutes: Number(e.target.value),
                   })
                 }
                 className="w-full rounded-lg px-3 py-2.5 text-sm font-medium tabular-nums"
