@@ -36,6 +36,12 @@ android {
             val releaseSigning = signingConfigs.findByName("release")
             if (releaseSigning != null) {
                 signingConfig = releaseSigning
+            } else if (!System.getenv("ANDROID_KEYSTORE_PATH").isNullOrBlank()) {
+                // Path was set but password/alias incomplete — fail fast instead of an unsigned APK.
+                error(
+                    "ANDROID_KEYSTORE_PATH is set but ANDROID_KEYSTORE_PASSWORD / " +
+                        "ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD are incomplete."
+                )
             }
             isMinifyEnabled = false
             proguardFiles(
