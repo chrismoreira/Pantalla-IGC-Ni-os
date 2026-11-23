@@ -3,9 +3,6 @@ name: Build Fire TV APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - master
 
 permissions:
   contents: write
@@ -46,9 +43,10 @@ jobs:
           if-no-files-found: error
 
       - name: Publish direct APK to Releases (latest)
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release view firetv-latest >/dev/null 2>&1 || gh release create firetv-latest --title "Pantalla IGC Fire TV" --notes "APK nativa para Amazon Fire TV"
-          gh release upload firetv-latest Pantalla-IGC-FireTV.apk --clobber
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: firetv-latest
+          name: Pantalla IGC Fire TV
+          body: APK nativa gratuita para Amazon Fire TV
+          files: Pantalla-IGC-FireTV.apk
+          make_latest: true
