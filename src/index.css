@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+:root {
+  --verde: #16403D;
+  --verde2: #1D4D49;
+  --verde3: #0D2725;
+  --naranja: #FD7D42;
+  --turquesa: #4DB8AF;
+  --amarillo: #FEC34C;
+  --arena: #E9D0AC;
+  --crema: #FAF2E6;
+  --gris-verdoso: #3A5A57;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--verde3);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  cursor: none;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: 'Poppins', system-ui, -apple-system, sans-serif;
+}
+
+.font-body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+#viewport {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--verde3);
+  cursor: none;
+}
+
+#stage {
+  width: 1920px;
+  height: 1080px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  transform-origin: center center;
+  cursor: none;
+}
+
+#stage *,
+#stage button,
+#stage iframe {
+  cursor: none;
+}
+
+@keyframes igc-marquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.igc-marquee-track {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: igc-marquee 42s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .igc-marquee-track {
+    animation: none;
+  }
+}
