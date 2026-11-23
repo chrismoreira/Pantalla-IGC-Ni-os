@@ -63,6 +63,7 @@ export function AdminPanel({
   const [recordatorioEntrega, setRecordatorioEntrega] = useState(
     activeConfig.recordatorioEntrega,
   );
+  const [features, setFeatures] = useState(activeConfig.features);
   const [content, setContent] = useState<SignageContent>(effectiveContent);
 
   const [saving, setSaving] = useState(false);
@@ -82,6 +83,7 @@ export function AdminPanel({
       youtube,
       sheets: { googleSheetCsvUrl: sheetUrl.trim() },
       recordatorioEntrega,
+      features,
       content,
     };
 
@@ -122,6 +124,7 @@ export function AdminPanel({
       });
       setSheetUrl(CONFIG.sheets.googleSheetCsvUrl);
       setRecordatorioEntrega(CONFIG.recordatorioEntrega);
+      setFeatures(CONFIG.features);
       setContent(CONFIG.defaults);
       setFeedback({
         type: 'ok',
@@ -493,7 +496,7 @@ export function AdminPanel({
           </div>
         </section>
 
-        {/* Contenido editable: Tema, Aviso, Recordatorios */}
+        {/* Contenido visible actualmente (Fase 1) */}
         <section
           className="rounded-2xl p-6 space-y-6"
           style={{ backgroundColor: 'var(--verde)' }}
@@ -501,72 +504,6 @@ export function AdminPanel({
           <h2 className="font-display text-xl font-bold" style={{ color: 'var(--crema)' }}>
             Contenido de las pantallas
           </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Tema de hoy */}
-            <div className="space-y-3 rounded-xl p-4" style={{ backgroundColor: 'var(--verde2)' }}>
-              <h3 className="font-display text-base font-bold" style={{ color: 'var(--amarillo)' }}>
-                Tema de hoy (Pantalla Antes)
-              </h3>
-              <input
-                type="text"
-                value={content.temaHoy.titulo}
-                onChange={(e) =>
-                  setContent({
-                    ...content,
-                    temaHoy: { ...content.temaHoy, titulo: e.target.value },
-                  })
-                }
-                placeholder="Título del tema"
-                className="w-full rounded-lg px-3 py-2 text-sm font-semibold"
-                style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
-              />
-              <textarea
-                rows={2}
-                value={content.temaHoy.detalle}
-                onChange={(e) =>
-                  setContent({
-                    ...content,
-                    temaHoy: { ...content.temaHoy, detalle: e.target.value },
-                  })
-                }
-                placeholder="Detalle o cita bíblica"
-                className="w-full rounded-lg px-3 py-2 text-sm"
-                style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
-              />
-            </div>
-
-            {/* Aviso al equipo */}
-            <div className="space-y-3 rounded-xl p-4" style={{ backgroundColor: 'var(--verde2)' }}>
-              <h3 className="font-display text-base font-bold" style={{ color: 'var(--naranja)' }}>
-                Aviso al equipo (Pantalla En vivo)
-              </h3>
-              <input
-                type="text"
-                value={content.avisoEquipo.titulo}
-                onChange={(e) =>
-                  setContent({
-                    ...content,
-                    avisoEquipo: { ...content.avisoEquipo, titulo: e.target.value },
-                  })
-                }
-                className="w-full rounded-lg px-3 py-2 text-sm font-semibold"
-                style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
-              />
-              <textarea
-                rows={2}
-                value={content.avisoEquipo.detalle}
-                onChange={(e) =>
-                  setContent({
-                    ...content,
-                    avisoEquipo: { ...content.avisoEquipo, detalle: e.target.value },
-                  })
-                }
-                className="w-full rounded-lg px-3 py-2 text-sm"
-                style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
-              />
-            </div>
-          </div>
 
           {/* Recordatorios del equipo */}
           <div className="space-y-3 rounded-xl p-4" style={{ backgroundColor: 'var(--verde2)' }}>
@@ -631,189 +568,6 @@ export function AdminPanel({
             </div>
           </div>
 
-          {/* Próximamente (Franja animada) */}
-          <div className="space-y-3 rounded-xl p-4" style={{ backgroundColor: 'var(--verde2)' }}>
-            <div className="flex items-center justify-between">
-              <h3 className="font-display text-base font-bold" style={{ color: 'var(--turquesa)' }}>
-                Franja Próximamente (Pantalla En vivo)
-              </h3>
-              <button
-                type="button"
-                onClick={() =>
-                  setContent({
-                    ...content,
-                    eventosProximos: [
-                      ...content.eventosProximos,
-                      { dia: '01', mes: 'ENE', titulo: 'Nuevo evento', detalle: '' },
-                    ],
-                  })
-                }
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-display text-xs font-bold"
-                style={{ backgroundColor: 'var(--turquesa)', color: 'var(--verde3)' }}
-              >
-                <Plus size={14} /> Agregar evento
-              </button>
-            </div>
-
-            <div className="space-y-2.5">
-              {content.eventosProximos.map((ev, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                  <input
-                    type="text"
-                    value={ev.dia}
-                    onChange={(e) =>
-                      setContent({
-                        ...content,
-                        eventosProximos: updateListItem(content.eventosProximos, idx, {
-                          dia: e.target.value,
-                        }),
-                      })
-                    }
-                    placeholder="Día"
-                    className="col-span-2 md:col-span-1 rounded-lg px-2.5 py-2 text-sm text-center"
-                    style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
-                  />
-                  <input
-                    type="text"
-                    value={ev.mes}
-                    onChange={(e) =>
-                      setContent({
-                        ...content,
-                        eventosProximos: updateListItem(content.eventosProximos, idx, {
-                          mes: e.target.value.toUpperCase(),
-                        }),
-                      })
-                    }
-                    placeholder="Mes"
-                    className="col-span-2 md:col-span-1 rounded-lg px-2.5 py-2 text-sm text-center uppercase"
-                    style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
-                  />
-                  <input
-                    type="text"
-                    value={ev.titulo}
-                    onChange={(e) =>
-                      setContent({
-                        ...content,
-                        eventosProximos: updateListItem(content.eventosProximos, idx, {
-                          titulo: e.target.value,
-                        }),
-                      })
-                    }
-                    placeholder="Título"
-                    className="col-span-8 md:col-span-4 rounded-lg px-3 py-2 text-sm font-semibold"
-                    style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
-                  />
-                  <input
-                    type="text"
-                    value={ev.detalle}
-                    onChange={(e) =>
-                      setContent({
-                        ...content,
-                        eventosProximos: updateListItem(content.eventosProximos, idx, {
-                          detalle: e.target.value,
-                        }),
-                      })
-                    }
-                    placeholder="Detalle"
-                    className="col-span-10 md:col-span-5 rounded-lg px-3 py-2 text-sm"
-                    style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
-                  />
-                  <button
-                    type="button"
-                    aria-label="Eliminar evento"
-                    onClick={() =>
-                      setContent({
-                        ...content,
-                        eventosProximos: content.eventosProximos.filter(
-                          (_, i) => i !== idx,
-                        ),
-                      })
-                    }
-                    className="col-span-2 md:col-span-1 p-2 rounded-lg flex justify-center"
-                    style={{ backgroundColor: 'var(--verde3)', color: 'var(--arena)' }}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* 3 Anuncios (Pantalla Después) + Entrega + Versículo */}
-          <div className="space-y-3 rounded-xl p-4" style={{ backgroundColor: 'var(--verde2)' }}>
-            <h3 className="font-display text-base font-bold" style={{ color: 'var(--amarillo)' }}>
-              3 Anuncios (Pantalla Después)
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {content.anunciosDespues.slice(0, 3).map((an, idx) => (
-                <div
-                  key={idx}
-                  className="rounded-lg p-3 space-y-2"
-                  style={{ backgroundColor: 'var(--verde3)' }}
-                >
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={an.dia}
-                      onChange={(e) =>
-                        setContent({
-                          ...content,
-                          anunciosDespues: updateListItem(content.anunciosDespues, idx, {
-                            dia: e.target.value,
-                          }),
-                        })
-                      }
-                      className="w-16 rounded px-2 py-1.5 text-sm text-center"
-                      style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
-                    />
-                    <input
-                      type="text"
-                      value={an.mes}
-                      onChange={(e) =>
-                        setContent({
-                          ...content,
-                          anunciosDespues: updateListItem(content.anunciosDespues, idx, {
-                            mes: e.target.value.toUpperCase(),
-                          }),
-                        })
-                      }
-                      className="w-20 rounded px-2 py-1.5 text-sm text-center uppercase"
-                      style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
-                    />
-                  </div>
-                  <input
-                    type="text"
-                    value={an.titulo}
-                    onChange={(e) =>
-                      setContent({
-                        ...content,
-                        anunciosDespues: updateListItem(content.anunciosDespues, idx, {
-                          titulo: e.target.value,
-                        }),
-                      })
-                    }
-                    className="w-full rounded px-2.5 py-1.5 text-sm font-semibold"
-                    style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
-                  />
-                  <textarea
-                    rows={2}
-                    value={an.detalle}
-                    onChange={(e) =>
-                      setContent({
-                        ...content,
-                        anunciosDespues: updateListItem(content.anunciosDespues, idx, {
-                          detalle: e.target.value,
-                        }),
-                      })
-                    }
-                    className="w-full rounded px-2.5 py-1.5 text-xs"
-                    style={{ backgroundColor: 'var(--verde)', color: 'var(--arena)' }}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="block rounded-xl p-4" style={{ backgroundColor: 'var(--verde2)' }}>
               <span className="font-display text-sm font-bold block mb-2" style={{ color: 'var(--turquesa)' }}>
@@ -864,6 +618,289 @@ export function AdminPanel({
               />
             </div>
           </div>
+
+          {/* Aviso al equipo (opcional mediante control remoto) */}
+          <div className="space-y-3 rounded-xl p-4" style={{ backgroundColor: 'var(--verde2)' }}>
+            <h3 className="font-display text-base font-bold" style={{ color: 'var(--naranja)' }}>
+              Aviso al equipo (opcional al activar con control remoto en En vivo)
+            </h3>
+            <input
+              type="text"
+              value={content.avisoEquipo.titulo}
+              onChange={(e) =>
+                setContent({
+                  ...content,
+                  avisoEquipo: { ...content.avisoEquipo, titulo: e.target.value },
+                })
+              }
+              className="w-full rounded-lg px-3 py-2 text-sm font-semibold"
+              style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
+            />
+            <textarea
+              rows={2}
+              value={content.avisoEquipo.detalle}
+              onChange={(e) =>
+                setContent({
+                  ...content,
+                  avisoEquipo: { ...content.avisoEquipo, detalle: e.target.value },
+                })
+              }
+              className="w-full rounded-lg px-3 py-2 text-sm"
+              style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
+            />
+          </div>
+
+          {/* Fase 2 (Oculto actualmente en la TV) */}
+          <details className="rounded-xl p-4" style={{ backgroundColor: 'var(--verde2)' }}>
+            <summary
+              className="cursor-pointer font-display text-base font-bold select-none"
+              style={{ color: 'var(--arena)' }}
+            >
+              Fase 2 (oculto en la TV actualmente): Temas, Anuncios y Momentos
+            </summary>
+
+            <div className="mt-4 space-y-5">
+              <div className="flex flex-wrap gap-6 rounded-lg p-3" style={{ backgroundColor: 'var(--verde3)' }}>
+                <label className="inline-flex items-center gap-2.5 text-sm font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={features.showTemasYAnuncios}
+                    onChange={(e) =>
+                      setFeatures({ ...features, showTemasYAnuncios: e.target.checked })
+                    }
+                  />
+                  <span>Mostrar Tema de hoy, Próximamente y Anuncios en TV</span>
+                </label>
+
+                <label className="inline-flex items-center gap-2.5 text-sm font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={features.showMomentosSidebar}
+                    onChange={(e) =>
+                      setFeatures({ ...features, showMomentosSidebar: e.target.checked })
+                    }
+                  />
+                  <span>Mostrar barra derecha de Momentos en En vivo</span>
+                </label>
+              </div>
+
+              {/* Tema de hoy */}
+              <div className="space-y-3 rounded-lg p-4" style={{ backgroundColor: 'var(--verde3)' }}>
+                <h3 className="font-display text-sm font-bold" style={{ color: 'var(--amarillo)' }}>
+                  Tema de hoy (Pantalla Antes)
+                </h3>
+                <input
+                  type="text"
+                  value={content.temaHoy.titulo}
+                  onChange={(e) =>
+                    setContent({
+                      ...content,
+                      temaHoy: { ...content.temaHoy, titulo: e.target.value },
+                    })
+                  }
+                  placeholder="Título del tema"
+                  className="w-full rounded-lg px-3 py-2 text-sm font-semibold"
+                  style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
+                />
+                <textarea
+                  rows={2}
+                  value={content.temaHoy.detalle}
+                  onChange={(e) =>
+                    setContent({
+                      ...content,
+                      temaHoy: { ...content.temaHoy, detalle: e.target.value },
+                    })
+                  }
+                  placeholder="Detalle o cita bíblica"
+                  className="w-full rounded-lg px-3 py-2 text-sm"
+                  style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
+                />
+              </div>
+
+              {/* Próximamente */}
+              <div className="space-y-3 rounded-lg p-4" style={{ backgroundColor: 'var(--verde3)' }}>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display text-sm font-bold" style={{ color: 'var(--turquesa)' }}>
+                    Franja Próximamente (Pantalla En vivo)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setContent({
+                        ...content,
+                        eventosProximos: [
+                          ...content.eventosProximos,
+                          { dia: '01', mes: 'ENE', titulo: 'Nuevo evento', detalle: '' },
+                        ],
+                      })
+                    }
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-display text-xs font-bold"
+                    style={{ backgroundColor: 'var(--turquesa)', color: 'var(--verde3)' }}
+                  >
+                    <Plus size={14} /> Agregar evento
+                  </button>
+                </div>
+
+                <div className="space-y-2.5">
+                  {content.eventosProximos.map((ev, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                      <input
+                        type="text"
+                        value={ev.dia}
+                        onChange={(e) =>
+                          setContent({
+                            ...content,
+                            eventosProximos: updateListItem(content.eventosProximos, idx, {
+                              dia: e.target.value,
+                            }),
+                          })
+                        }
+                        placeholder="Día"
+                        className="col-span-2 md:col-span-1 rounded-lg px-2.5 py-2 text-sm text-center"
+                        style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
+                      />
+                      <input
+                        type="text"
+                        value={ev.mes}
+                        onChange={(e) =>
+                          setContent({
+                            ...content,
+                            eventosProximos: updateListItem(content.eventosProximos, idx, {
+                              mes: e.target.value.toUpperCase(),
+                            }),
+                          })
+                        }
+                        placeholder="Mes"
+                        className="col-span-2 md:col-span-1 rounded-lg px-2.5 py-2 text-sm text-center uppercase"
+                        style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
+                      />
+                      <input
+                        type="text"
+                        value={ev.titulo}
+                        onChange={(e) =>
+                          setContent({
+                            ...content,
+                            eventosProximos: updateListItem(content.eventosProximos, idx, {
+                              titulo: e.target.value,
+                            }),
+                          })
+                        }
+                        placeholder="Título"
+                        className="col-span-8 md:col-span-4 rounded-lg px-3 py-2 text-sm font-semibold"
+                        style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
+                      />
+                      <input
+                        type="text"
+                        value={ev.detalle}
+                        onChange={(e) =>
+                          setContent({
+                            ...content,
+                            eventosProximos: updateListItem(content.eventosProximos, idx, {
+                              detalle: e.target.value,
+                            }),
+                          })
+                        }
+                        placeholder="Detalle"
+                        className="col-span-10 md:col-span-5 rounded-lg px-3 py-2 text-sm"
+                        style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
+                      />
+                      <button
+                        type="button"
+                        aria-label="Eliminar evento"
+                        onClick={() =>
+                          setContent({
+                            ...content,
+                            eventosProximos: content.eventosProximos.filter(
+                              (_, i) => i !== idx,
+                            ),
+                          })
+                        }
+                        className="col-span-2 md:col-span-1 p-2 rounded-lg flex justify-center"
+                        style={{ backgroundColor: 'var(--verde)', color: 'var(--arena)' }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3 Anuncios */}
+              <div className="space-y-3 rounded-lg p-4" style={{ backgroundColor: 'var(--verde3)' }}>
+                <h3 className="font-display text-sm font-bold" style={{ color: 'var(--amarillo)' }}>
+                  3 Anuncios (Pantalla Después)
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {content.anunciosDespues.slice(0, 3).map((an, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-lg p-3 space-y-2"
+                      style={{ backgroundColor: 'var(--verde2)' }}
+                    >
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={an.dia}
+                          onChange={(e) =>
+                            setContent({
+                              ...content,
+                              anunciosDespues: updateListItem(content.anunciosDespues, idx, {
+                                dia: e.target.value,
+                              }),
+                            })
+                          }
+                          className="w-16 rounded px-2 py-1.5 text-sm text-center"
+                          style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
+                        />
+                        <input
+                          type="text"
+                          value={an.mes}
+                          onChange={(e) =>
+                            setContent({
+                              ...content,
+                              anunciosDespues: updateListItem(content.anunciosDespues, idx, {
+                                mes: e.target.value.toUpperCase(),
+                              }),
+                            })
+                          }
+                          className="w-20 rounded px-2 py-1.5 text-sm text-center uppercase"
+                          style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        value={an.titulo}
+                        onChange={(e) =>
+                          setContent({
+                            ...content,
+                            anunciosDespues: updateListItem(content.anunciosDespues, idx, {
+                              titulo: e.target.value,
+                            }),
+                          })
+                        }
+                        className="w-full rounded px-2.5 py-1.5 text-sm font-semibold"
+                        style={{ backgroundColor: 'var(--verde)', color: 'var(--crema)' }}
+                      />
+                      <textarea
+                        rows={2}
+                        value={an.detalle}
+                        onChange={(e) =>
+                          setContent({
+                            ...content,
+                            anunciosDespues: updateListItem(content.anunciosDespues, idx, {
+                              detalle: e.target.value,
+                            }),
+                          })
+                        }
+                        className="w-full rounded px-2.5 py-1.5 text-xs"
+                        style={{ backgroundColor: 'var(--verde)', color: 'var(--arena)' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </details>
         </section>
 
         {/* Aplicación nativa Fire TV (APK gratuita) */}

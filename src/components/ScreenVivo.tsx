@@ -15,6 +15,8 @@ interface ScreenVivoProps {
   liveTitle: string | null;
   isLiveNow: boolean;
   modeSetting: ModeSetting;
+  showTemasYAnuncios?: boolean;
+  showMomentosSidebar?: boolean;
 }
 
 export function ScreenVivo({
@@ -28,6 +30,8 @@ export function ScreenVivo({
   liveTitle,
   isLiveNow,
   modeSetting,
+  showTemasYAnuncios = false,
+  showMomentosSidebar = false,
 }: ScreenVivoProps) {
   const clockLabel = formatClock12h(svNow);
   const embedUrl = buildYouTubeEmbedUrl(
@@ -36,6 +40,8 @@ export function ScreenVivo({
     muted,
   );
   const eventos = content.eventosProximos;
+  const playerWidth = showMomentosSidebar ? 1300 : showTemasYAnuncios ? 1400 : 1600;
+  const playerHeight = showMomentosSidebar ? 731 : showTemasYAnuncios ? 788 : 900;
 
   return (
     <div
@@ -103,10 +109,17 @@ export function ScreenVivo({
         </div>
       </header>
 
-      {/* Fila principal: YouTube 1300x731 con marco turquesa + Panel lateral */}
-      <main className="flex items-stretch gap-[36px] my-auto">
-        {/* Reproductor YouTube exacto 1300x731 con marco turquesa detrás */}
-        <div className="relative shrink-0" style={{ width: '1300px', height: '731px' }}>
+      {/* Fila principal: YouTube 16:9 con marco turquesa (+ Panel lateral opcional Fase 2) */}
+      <main
+        className={`flex items-center my-auto ${
+          showMomentosSidebar ? 'justify-between gap-[36px]' : 'justify-center'
+        }`}
+      >
+        {/* Reproductor YouTube 16:9 con marco turquesa detrás */}
+        <div
+          className="relative shrink-0"
+          style={{ width: `${playerWidth}px`, height: `${playerHeight}px` }}
+        >
           {/* Marco turquesa detrás */}
           <div
             className="absolute inset-0 rounded-[18px]"
@@ -117,7 +130,7 @@ export function ScreenVivo({
             aria-hidden="true"
           />
           <div
-            className="relative w-[1300px] h-[731px] rounded-[16px] overflow-hidden border-[4px]"
+            className="relative w-full h-full rounded-[16px] overflow-hidden border-[4px]"
             style={{
               backgroundColor: 'var(--verde3)',
               borderColor: 'var(--turquesa)',
@@ -127,8 +140,8 @@ export function ScreenVivo({
               key={`${liveVideoId ?? 'channel'}-${muted ? 'm1' : 'm0'}`}
               src={embedUrl}
               title="Transmisión en vivo Iglesia Gran Comisión"
-              width={1300}
-              height={731}
+              width={playerWidth}
+              height={playerHeight}
               className="w-full h-full border-0 block"
               allow="autoplay; encrypted-media; picture-in-picture"
               allowFullScreen
@@ -137,8 +150,9 @@ export function ScreenVivo({
           </div>
         </div>
 
-        {/* Panel lateral: Momentos del servicio + Aviso al equipo */}
-        <aside className="flex-1 flex flex-col justify-between gap-5 h-[731px] min-w-0">
+        {/* Panel lateral Fase 2: Momentos del servicio + Aviso al equipo */}
+        {showMomentosSidebar && (
+          <aside className="flex-1 flex flex-col justify-between gap-5 h-[731px] min-w-0">
           {/* Lista de momentos del servicio */}
           <section
             className="rounded-[20px] p-[28px] flex-1 flex flex-col justify-between"
@@ -246,65 +260,86 @@ export function ScreenVivo({
               </p>
             </section>
           )}
-        </aside>
+          </aside>
+        )}
       </main>
 
-      {/* Franja inferior animada PRÓXIMAMENTE */}
-      <footer
-        className="h-[104px] rounded-[18px] flex items-center overflow-hidden"
-        style={{ backgroundColor: 'var(--verde3)' }}
-      >
-        <div
-          className="h-full px-[36px] flex items-center justify-center shrink-0 z-10"
+      {/* Aviso al equipo flotante (solo si se activa manualmente en Fase 1 sin barra lateral) */}
+      {!showMomentosSidebar && showTeamAlert && (
+        <section
+          className="absolute left-1/2 bottom-[36px] -translate-x-1/2 z-20 max-w-[1100px] rounded-[20px] px-[34px] py-[20px]"
           style={{
-            backgroundColor: 'var(--turquesa)',
+            backgroundColor: 'var(--naranja)',
             color: 'var(--verde3)',
           }}
         >
-          <span className="font-display text-[24px] font-extrabold uppercase tracking-[0.12em]">
-            Próximamente
-          </span>
-        </div>
+          <p className="font-display text-[18px] font-extrabold uppercase tracking-[0.1em]">
+            {content.avisoEquipo.titulo}
+          </p>
+          <p className="font-body text-[22px] font-semibold leading-[1.35] mt-1">
+            {content.avisoEquipo.detalle}
+          </p>
+        </section>
+      )}
 
-        <div className="flex-1 overflow-hidden relative h-full flex items-center">
-          <div className="igc-marquee-track items-center gap-[48px] pl-[36px]">
-            {[...eventos, ...eventos].map((ev, index) => (
-              <div
-                key={`${ev.titulo}-${index}`}
-                className="flex items-center gap-5 shrink-0 pr-8"
-              >
-                <div
-                  className="px-4 py-2 rounded-[10px] text-center shrink-0"
-                  style={{
-                    backgroundColor: 'var(--amarillo)',
-                    color: 'var(--verde3)',
-                  }}
-                >
-                  <span className="font-display text-[20px] font-extrabold tabular-nums">
-                    {ev.dia} {ev.mes}
-                  </span>
-                </div>
-                <div>
-                  <p
-                    className="font-display text-[22px] font-bold leading-tight"
-                    style={{ color: 'var(--crema)' }}
-                  >
-                    {ev.titulo}
-                  </p>
-                  {ev.detalle && (
-                    <p
-                      className="font-body text-[18px] font-medium leading-tight mt-0.5"
-                      style={{ color: 'var(--arena)' }}
-                    >
-                      {ev.detalle}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
+      {/* Franja inferior animada PRÓXIMAMENTE (Fase 2) */}
+      {showTemasYAnuncios && (
+        <footer
+          className="h-[104px] rounded-[18px] flex items-center overflow-hidden"
+          style={{ backgroundColor: 'var(--verde3)' }}
+        >
+          <div
+            className="h-full px-[36px] flex items-center justify-center shrink-0 z-10"
+            style={{
+              backgroundColor: 'var(--turquesa)',
+              color: 'var(--verde3)',
+            }}
+          >
+            <span className="font-display text-[24px] font-extrabold uppercase tracking-[0.12em]">
+              Próximamente
+            </span>
           </div>
-        </div>
-      </footer>
+
+          <div className="flex-1 overflow-hidden relative h-full flex items-center">
+            <div className="igc-marquee-track items-center gap-[48px] pl-[36px]">
+              {[...eventos, ...eventos].map((ev, index) => (
+                <div
+                  key={`${ev.titulo}-${index}`}
+                  className="flex items-center gap-5 shrink-0 pr-8"
+                >
+                  <div
+                    className="px-4 py-2 rounded-[10px] text-center shrink-0"
+                    style={{
+                      backgroundColor: 'var(--amarillo)',
+                      color: 'var(--verde3)',
+                    }}
+                  >
+                    <span className="font-display text-[20px] font-extrabold tabular-nums">
+                      {ev.dia} {ev.mes}
+                    </span>
+                  </div>
+                  <div>
+                    <p
+                      className="font-display text-[22px] font-bold leading-tight"
+                      style={{ color: 'var(--crema)' }}
+                    >
+                      {ev.titulo}
+                    </p>
+                    {ev.detalle && (
+                      <p
+                        className="font-body text-[18px] font-medium leading-tight mt-0.5"
+                        style={{ color: 'var(--arena)' }}
+                      >
+                        {ev.detalle}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }

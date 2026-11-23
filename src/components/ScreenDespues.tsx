@@ -13,6 +13,7 @@ interface ScreenDespuesProps {
   modeSetting: ModeSetting;
   schedule?: typeof CONFIG.schedule;
   recordatorioEntrega?: string;
+  showAnuncios?: boolean;
 }
 
 export function ScreenDespues({
@@ -21,6 +22,7 @@ export function ScreenDespues({
   modeSetting,
   schedule = CONFIG.schedule,
   recordatorioEntrega = CONFIG.recordatorioEntrega,
+  showAnuncios = false,
 }: ScreenDespuesProps) {
   const clockLabel = formatClock12h(svNow);
   const dateLabel = formatDateEs(svNow);
@@ -74,36 +76,46 @@ export function ScreenDespues({
 
       {/* Tarjeta turquesa principal */}
       <section
-        className="rounded-[24px] px-[52px] py-[40px] flex items-center justify-between gap-12"
+        className={`rounded-[24px] flex items-center justify-between gap-12 ${
+          showAnuncios ? 'px-[52px] py-[40px]' : 'px-[64px] py-[64px] my-auto'
+        }`}
         style={{
           backgroundColor: 'var(--turquesa)',
           color: 'var(--verde3)',
         }}
       >
         <div className="max-w-[1160px]">
-          <h2 className="font-display text-[56px] font-extrabold leading-[1.08] tracking-tight">
+          <h2
+            className={`font-display font-extrabold leading-[1.08] tracking-tight ${
+              showAnuncios ? 'text-[56px]' : 'text-[66px]'
+            }`}
+          >
             ¡Gracias por servir hoy!
           </h2>
-          <p className="font-body text-[27px] font-semibold leading-[1.4] mt-3">
+          <p
+            className={`font-body font-semibold leading-[1.4] mt-4 ${
+              showAnuncios ? 'text-[27px]' : 'text-[31px]'
+            }`}
+          >
             {recordatorioEntrega}
           </p>
         </div>
 
         <div
-          className="rounded-[18px] px-[36px] py-[26px] shrink-0 text-right"
+          className="rounded-[18px] px-[40px] py-[30px] shrink-0 text-right"
           style={{
             backgroundColor: 'var(--verde3)',
             color: 'var(--crema)',
           }}
         >
           <p
-            className="font-display text-[17px] font-bold uppercase tracking-[0.12em]"
+            className="font-display text-[18px] font-bold uppercase tracking-[0.12em]"
             style={{ color: 'var(--turquesa)' }}
           >
             Próximo servicio
           </p>
           <p
-            className="font-display text-[32px] font-extrabold mt-1.5 tabular-nums"
+            className="font-display text-[36px] font-extrabold mt-2 tabular-nums"
             style={{ color: 'var(--crema)' }}
           >
             {nextServiceLabel}
@@ -111,51 +123,53 @@ export function ScreenDespues({
         </div>
       </section>
 
-      {/* 3 tarjetas de anuncios con fecha */}
-      <section className="grid grid-cols-3 gap-[32px]">
-        {anuncios.map((anuncio, idx) => (
-          <article
-            key={`${anuncio.titulo}-${idx}`}
-            className="rounded-[20px] p-[32px] flex flex-col justify-between gap-5"
-            style={{
-              backgroundColor: 'var(--verde2)',
-              border: '1px solid rgba(250, 242, 230, 0.12)',
-            }}
-          >
-            <div className="flex items-start gap-5">
-              <div
-                className="w-[82px] h-[86px] rounded-[14px] flex flex-col items-center justify-center shrink-0"
-                style={{
-                  backgroundColor: 'var(--amarillo)',
-                  color: 'var(--verde3)',
-                }}
-              >
-                <span className="font-display text-[34px] font-extrabold leading-none tabular-nums">
-                  {anuncio.dia}
-                </span>
-                <span className="font-display text-[16px] font-extrabold uppercase tracking-wider mt-1">
-                  {anuncio.mes}
-                </span>
-              </div>
+      {/* 3 tarjetas de anuncios con fecha (Fase 2) */}
+      {showAnuncios && (
+        <section className="grid grid-cols-3 gap-[32px]">
+          {anuncios.map((anuncio, idx) => (
+            <article
+              key={`${anuncio.titulo}-${idx}`}
+              className="rounded-[20px] p-[32px] flex flex-col justify-between gap-5"
+              style={{
+                backgroundColor: 'var(--verde2)',
+                border: '1px solid rgba(250, 242, 230, 0.12)',
+              }}
+            >
+              <div className="flex items-start gap-5">
+                <div
+                  className="w-[82px] h-[86px] rounded-[14px] flex flex-col items-center justify-center shrink-0"
+                  style={{
+                    backgroundColor: 'var(--amarillo)',
+                    color: 'var(--verde3)',
+                  }}
+                >
+                  <span className="font-display text-[34px] font-extrabold leading-none tabular-nums">
+                    {anuncio.dia}
+                  </span>
+                  <span className="font-display text-[16px] font-extrabold uppercase tracking-wider mt-1">
+                    {anuncio.mes}
+                  </span>
+                </div>
 
-              <div className="min-w-0">
-                <h3
-                  className="font-display text-[26px] font-bold leading-snug"
-                  style={{ color: 'var(--crema)' }}
-                >
-                  {anuncio.titulo}
-                </h3>
-                <p
-                  className="font-body text-[20px] font-normal leading-[1.45] mt-2"
-                  style={{ color: 'var(--arena)' }}
-                >
-                  {anuncio.detalle}
-                </p>
+                <div className="min-w-0">
+                  <h3
+                    className="font-display text-[26px] font-bold leading-snug"
+                    style={{ color: 'var(--crema)' }}
+                  >
+                    {anuncio.titulo}
+                  </h3>
+                  <p
+                    className="font-body text-[20px] font-normal leading-[1.45] mt-2"
+                    style={{ color: 'var(--arena)' }}
+                  >
+                    {anuncio.detalle}
+                  </p>
+                </div>
               </div>
-            </div>
-          </article>
-        ))}
-      </section>
+            </article>
+          ))}
+        </section>
+      )}
 
       {/* Versículo al pie (Mateo 19:14) */}
       <footer

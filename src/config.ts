@@ -51,6 +51,10 @@ export interface SignageConfig {
   };
   momentos: string[];
   recordatorioEntrega: string;
+  features: {
+    showTemasYAnuncios: boolean;
+    showMomentosSidebar: boolean;
+  };
   defaults: SignageContent;
 }
 
@@ -87,6 +91,10 @@ export const CONFIG: SignageConfig = {
   ],
   recordatorioEntrega:
     'Recuerda entregar a cada niño únicamente a la persona que lo registró, verificando el brazalete correspondiente.',
+  features: {
+    showTemasYAnuncios: false,
+    showMomentosSidebar: false,
+  },
   defaults: {
     recordatorios: [
       'Confirmar registro de cada niño y colocar brazalete de identificación al ingresar.',
@@ -169,6 +177,10 @@ export interface RuntimeOverrides {
     googleSheetCsvUrl: string;
   };
   recordatorioEntrega?: string;
+  features?: {
+    showTemasYAnuncios?: boolean;
+    showMomentosSidebar?: boolean;
+  };
   content?: SignageContent;
 }
 
@@ -189,6 +201,10 @@ export function mergeWithRuntimeConfig(
     },
     recordatorioEntrega:
       overrides.recordatorioEntrega ?? CONFIG.recordatorioEntrega,
+    features: {
+      ...CONFIG.features,
+      ...(overrides.features ?? {}),
+    },
     defaults: overrides.content ?? CONFIG.defaults,
   };
 }

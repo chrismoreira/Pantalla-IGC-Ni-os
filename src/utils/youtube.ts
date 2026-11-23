@@ -71,7 +71,8 @@ export function buildYouTubeEmbedUrl(
   const params = new URLSearchParams({
     autoplay: '1',
     mute: muted ? '1' : '0',
-    controls: '0',
+    controls: '1',
+    enablejsapi: '1',
     rel: '0',
     modestbranding: '1',
     playsinline: '1',

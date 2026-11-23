@@ -9,6 +9,7 @@ interface ControlMenuProps {
   currentMoment: number;
   showTeamAlert: boolean;
   muted: boolean;
+  showMomentosSidebar?: boolean;
   onChangeMode: (mode: ModeSetting) => void;
   onPrevMoment: () => void;
   onNextMoment: () => void;
@@ -31,6 +32,7 @@ export function ControlMenu({
   currentMoment,
   showTeamAlert,
   muted,
+  showMomentosSidebar = false,
   onChangeMode,
   onPrevMoment,
   onNextMoment,
@@ -205,60 +207,62 @@ export function ControlMenu({
             </div>
           </div>
 
-          {/* 2. Momento del servicio */}
-          <div>
-            <p
-              className="font-display text-[19px] font-bold uppercase tracking-wider mb-3"
-              style={{ color: 'var(--turquesa)' }}
-            >
-              Momento del servicio
-            </p>
-            <div
-              className="flex items-center justify-between gap-4 rounded-[16px] p-3"
-              style={{ backgroundColor: 'var(--verde2)' }}
-            >
-              <button
-                type="button"
-                onClick={onPrevMoment}
-                aria-label="Momento anterior"
-                className="p-3.5 rounded-[12px] focus:outline-none focus:ring-4"
-                style={{
-                  backgroundColor: 'var(--verde3)',
-                  color: 'var(--crema)',
-                }}
+          {/* 2. Momento del servicio (solo Fase 2) */}
+          {showMomentosSidebar && (
+            <div>
+              <p
+                className="font-display text-[19px] font-bold uppercase tracking-wider mb-3"
+                style={{ color: 'var(--turquesa)' }}
               >
-                <ChevronLeft size={28} />
-              </button>
+                Momento del servicio
+              </p>
+              <div
+                className="flex items-center justify-between gap-4 rounded-[16px] p-3"
+                style={{ backgroundColor: 'var(--verde2)' }}
+              >
+                <button
+                  type="button"
+                  onClick={onPrevMoment}
+                  aria-label="Momento anterior"
+                  className="p-3.5 rounded-[12px] focus:outline-none focus:ring-4"
+                  style={{
+                    backgroundColor: 'var(--verde3)',
+                    color: 'var(--crema)',
+                  }}
+                >
+                  <ChevronLeft size={28} />
+                </button>
 
-              <div className="text-center">
-                <p
-                  className="font-display text-[26px] font-extrabold"
-                  style={{ color: 'var(--amarillo)' }}
+                <div className="text-center">
+                  <p
+                    className="font-display text-[26px] font-extrabold"
+                    style={{ color: 'var(--amarillo)' }}
+                  >
+                    {CONFIG.momentos[currentMoment]}
+                  </p>
+                  <p
+                    className="font-body text-[16px] tabular-nums"
+                    style={{ color: 'var(--arena)' }}
+                  >
+                    Paso {currentMoment + 1} de {CONFIG.momentos.length}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onNextMoment}
+                  aria-label="Siguiente momento"
+                  className="p-3.5 rounded-[12px] focus:outline-none focus:ring-4"
+                  style={{
+                    backgroundColor: 'var(--verde3)',
+                    color: 'var(--crema)',
+                  }}
                 >
-                  {CONFIG.momentos[currentMoment]}
-                </p>
-                <p
-                  className="font-body text-[16px] tabular-nums"
-                  style={{ color: 'var(--arena)' }}
-                >
-                  Paso {currentMoment + 1} de {CONFIG.momentos.length}
-                </p>
+                  <ChevronRight size={28} />
+                </button>
               </div>
-
-              <button
-                type="button"
-                onClick={onNextMoment}
-                aria-label="Siguiente momento"
-                className="p-3.5 rounded-[12px] focus:outline-none focus:ring-4"
-                style={{
-                  backgroundColor: 'var(--verde3)',
-                  color: 'var(--crema)',
-                }}
-              >
-                <ChevronRight size={28} />
-              </button>
             </div>
-          </div>
+          )}
 
           {/* 3. Aviso al equipo & 4. Sonido */}
           <div className="grid grid-cols-2 gap-5">
@@ -324,7 +328,7 @@ export function ControlMenu({
           }}
         >
           <span>OK / M: Abrir o cerrar menú</span>
-          <span>Izq / Der (sin menú): Momento</span>
+          {showMomentosSidebar && <span>Izq / Der (sin menú): Momento</span>}
           <span>Arriba / Abajo (sin menú): Aviso</span>
         </div>
       </div>

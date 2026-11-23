@@ -14,6 +14,7 @@ interface ScreenAntesProps {
   content: SignageContent;
   modeSetting: ModeSetting;
   schedule?: typeof CONFIG.schedule;
+  showTemaHoy?: boolean;
 }
 
 export function ScreenAntes({
@@ -22,6 +23,7 @@ export function ScreenAntes({
   content,
   modeSetting,
   schedule = CONFIG.schedule,
+  showTemaHoy = false,
 }: ScreenAntesProps) {
   const countdown = formatCountdown(countdownTargetMs, svNow.utcMs);
   const clockLabel = formatClock12h(svNow);
@@ -35,7 +37,7 @@ export function ScreenAntes({
 
   return (
     <div
-      className="w-full h-full flex flex-col justify-between px-[72px] py-[52px]"
+      className={`w-full h-full flex flex-col justify-between px-[72px] ${showTemaHoy ? 'py-[52px]' : 'py-[60px]'}`}
       style={{ backgroundColor: 'var(--crema)', color: 'var(--verde3)' }}
     >
       {/* Cabecera */}
@@ -167,40 +169,44 @@ export function ScreenAntes({
         </section>
       </main>
 
-      {/* Pie: Tema de hoy */}
-      <footer
-        className="rounded-[20px] px-[40px] py-[26px] flex items-center justify-between gap-10"
-        style={{
-          backgroundColor: 'var(--arena)',
-          color: 'var(--verde3)',
-        }}
-      >
-        <div className="flex items-center gap-8 min-w-0">
-          <span
-            className="font-display text-[20px] font-extrabold uppercase tracking-[0.12em] px-5 py-2.5 rounded-[12px] shrink-0"
-            style={{
-              backgroundColor: 'var(--verde)',
-              color: 'var(--crema)',
-            }}
-          >
-            Tema de hoy
-          </span>
-          <div className="min-w-0">
-            <h3
-              className="font-display text-[30px] font-bold leading-snug truncate"
-              style={{ color: 'var(--verde3)' }}
+      {/* Pie: Tema de hoy (Fase 2) */}
+      {showTemaHoy ? (
+        <footer
+          className="rounded-[20px] px-[40px] py-[26px] flex items-center justify-between gap-10"
+          style={{
+            backgroundColor: 'var(--arena)',
+            color: 'var(--verde3)',
+          }}
+        >
+          <div className="flex items-center gap-8 min-w-0">
+            <span
+              className="font-display text-[20px] font-extrabold uppercase tracking-[0.12em] px-5 py-2.5 rounded-[12px] shrink-0"
+              style={{
+                backgroundColor: 'var(--verde)',
+                color: 'var(--crema)',
+              }}
             >
-              {content.temaHoy.titulo}
-            </h3>
-            <p
-              className="font-body text-[21px] font-medium truncate mt-0.5"
-              style={{ color: 'var(--verde)' }}
-            >
-              {content.temaHoy.detalle}
-            </p>
+              Tema de hoy
+            </span>
+            <div className="min-w-0">
+              <h3
+                className="font-display text-[30px] font-bold leading-snug truncate"
+                style={{ color: 'var(--verde3)' }}
+              >
+                {content.temaHoy.titulo}
+              </h3>
+              <p
+                className="font-body text-[21px] font-medium truncate mt-0.5"
+                style={{ color: 'var(--verde)' }}
+              >
+                {content.temaHoy.detalle}
+              </p>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      ) : (
+        <div aria-hidden="true" className="h-[8px]" />
+      )}
     </div>
   );
 }

@@ -20,7 +20,7 @@ import {
   YouTubeLiveStatus,
 } from './utils/youtube';
 
-const STORAGE_KEY = 'igc_pantalla_cuidado_ninos_v1';
+const STORAGE_KEY = 'igc_pantalla_cuidado_ninos_v2';
 
 interface PersistedState {
   modeSetting: ModeSetting;
@@ -57,8 +57,8 @@ function loadInitialState(): PersistedState {
   const fallback: PersistedState = {
     modeSetting: urlMode ?? 'auto',
     currentMoment: 0,
-    showTeamAlert: true,
-    muted: true,
+    showTeamAlert: false,
+    muted: false,
   };
 
   try {
@@ -85,8 +85,8 @@ function loadInitialState(): PersistedState {
       modeSetting: urlMode ?? savedMode,
       currentMoment: savedMoment,
       showTeamAlert:
-        typeof parsed.showTeamAlert === 'boolean' ? parsed.showTeamAlert : true,
-      muted: typeof parsed.muted === 'boolean' ? parsed.muted : true,
+        typeof parsed.showTeamAlert === 'boolean' ? parsed.showTeamAlert : false,
+      muted: typeof parsed.muted === 'boolean' ? parsed.muted : false,
     };
   } catch {
     return fallback;
@@ -339,10 +339,10 @@ export default function App() {
         return;
       }
 
-      if (e.key === 'ArrowLeft') {
+      if (e.key === 'ArrowLeft' && activeConfig.features.showMomentosSidebar) {
         e.preventDefault();
         handlePrevMoment();
-      } else if (e.key === 'ArrowRight') {
+      } else if (e.key === 'ArrowRight' && activeConfig.features.showMomentosSidebar) {
         e.preventDefault();
         handleNextMoment();
       } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -356,6 +356,7 @@ export default function App() {
   }, [
     adminView,
     menuOpen,
+    activeConfig.features.showMomentosSidebar,
     handlePrevMoment,
     handleNextMoment,
     handleToggleTeamAlert,
@@ -405,6 +406,7 @@ export default function App() {
             content={effectiveContent}
             modeSetting={modeSetting}
             schedule={activeConfig.schedule}
+            showTemaHoy={activeConfig.features.showTemasYAnuncios}
           />
         )}
 
@@ -428,6 +430,8 @@ export default function App() {
             }
             isLiveNow={ytStatus.isLive}
             modeSetting={modeSetting}
+            showTemasYAnuncios={activeConfig.features.showTemasYAnuncios}
+            showMomentosSidebar={activeConfig.features.showMomentosSidebar}
           />
         )}
 
@@ -438,6 +442,7 @@ export default function App() {
             modeSetting={modeSetting}
             schedule={activeConfig.schedule}
             recordatorioEntrega={activeConfig.recordatorioEntrega}
+            showAnuncios={activeConfig.features.showTemasYAnuncios}
           />
         )}
 
@@ -448,6 +453,7 @@ export default function App() {
           currentMoment={currentMoment}
           showTeamAlert={showTeamAlert}
           muted={muted}
+          showMomentosSidebar={activeConfig.features.showMomentosSidebar}
           onChangeMode={setModeSetting}
           onPrevMoment={handlePrevMoment}
           onNextMoment={handleNextMoment}

@@ -39,6 +39,10 @@ interface RuntimeOverrides {
     googleSheetCsvUrl: string;
   };
   recordatorioEntrega?: string;
+  features?: {
+    showTemasYAnuncios?: boolean;
+    showMomentosSidebar?: boolean;
+  };
   content?: {
     recordatorios: string[];
     temaHoy: { titulo: string; detalle: string };
