@@ -398,11 +398,32 @@ class MainActivity : AppCompatActivity() {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor("#4DB8AF"))
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, px(16))
         }
         container.addView(titleView)
 
+        val versionView = TextView(this).apply {
+            text = "Versión instalada: v${getLocalVersionName()}"
+            textSize = 13f
+            setTextColor(Color.parseColor("#E9D0AC"))
+            gravity = Gravity.CENTER
+            setPadding(0, px(4), 0, px(8))
+        }
+        container.addView(versionView)
+
+        val updateStatusView = TextView(this).apply {
+            text = ""
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#FEC34C"))
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(0, 0, 0, px(12))
+        }
+        container.addView(updateStatusView)
+
         lateinit var dialog: AlertDialog
+        lateinit var updateBtn: Button
+        var isCheckingUpdate = false
 
         val homeBtn = createTvButton(
             label = "Ir al inicio de Fire TV (Salir)",
@@ -419,6 +440,39 @@ class MainActivity : AppCompatActivity() {
             }
             startActivity(homeIntent)
             finish()
+        }
+
+        updateBtn = createTvButton(
+            label = "Buscar actualizaciones ahora",
+            normalColor = Color.parseColor("#4DB8AF"),
+            focusedColor = Color.parseColor("#FEC34C"),
+            normalTextColor = Color.parseColor("#0D2725"),
+            focusedTextColor = Color.parseColor("#0D2725"),
+            textSizeSp = 16f
+        ) {
+            if (isCheckingUpdate) return@createTvButton
+            isCheckingUpdate = true
+            updateBtn.text = "Buscando actualizaciones..."
+            updateStatusView.visibility = View.VISIBLE
+            updateStatusView.setTextColor(Color.parseColor("#FEC34C"))
+            updateStatusView.text = "Consultando última versión en GitHub..."
+
+            checkGitHubReleaseForUpdate(manual = true) { message, inProgress, isError ->
+                if (!dialog.isShowing) return@checkGitHubReleaseForUpdate
+                updateStatusView.visibility = View.VISIBLE
+                updateStatusView.setTextColor(
+                    when {
+                        isError -> Color.parseColor("#FD7D42")
+                        inProgress -> Color.parseColor("#FEC34C")
+                        else -> Color.parseColor("#4DB8AF")
+                    }
+                )
+                updateStatusView.text = message
+                if (!inProgress) {
+                    isCheckingUpdate = false
+                    updateBtn.text = "Buscar actualizaciones ahora"
+                }
+            }
         }
 
         val wifiBtn = createTvButton(
@@ -460,10 +514,10 @@ class MainActivity : AppCompatActivity() {
             dialog.dismiss()
         }
 
-        listOf(homeBtn, wifiBtn, settingsBtn, stayBtn).forEach { btn ->
+        listOf(homeBtn, updateBtn, wifiBtn, settingsBtn, stayBtn).forEach { btn ->
             container.addView(
                 btn,
-                LinearLayout.LayoutParams(px(320), px(52)).apply {
+                LinearLayout.LayoutParams(px(340), px(50)).apply {
                     bottomMargin = px(10)
                 }
             )
@@ -531,54 +585,112 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkGitHubReleaseForUpdate() {
-        if (updatePromptedInSession) return
-        val now = System.currentTimeMillis()
-        if (now - lastUpdateCheckMs < 10 * 60 * 1000L) return
-        lastUpdateCheckMs = now
+    private fun checkGitHubReleaseForUpdate(
+        manual: Boolean = false,
+        onStatus: ((message: String, inProgress: Boolean, isError: Boolean) -> Unit)? = null
+    ) {
+        if (!manual) {
+            if (updatePromptedInSession) return
+            val now = System.currentTimeMillis()
+            if (now - lastUpdateCheckMs < 10 * 60 * 1000L) return
+            lastUpdateCheckMs = now
+        }
+
         val releaseApi = getString(R.string.github_release_api)
-        if (releaseApi.isBlank()) return
+        if (releaseApi.isBlank()) {
+            if (manual) {
+                onStatus?.invoke("No hay repositorio de actualizaciones configurado.", false, true)
+            }
+            return
+        }
+
+        fun reportStatus(message: String, inProgress: Boolean, isError: Boolean = false) {
+            if (onStatus == null || isFinishing || isDestroyed) return
+            runOnUiThread {
+                onStatus(message, inProgress, isError)
+            }
+        }
 
         updateExecutor.execute {
             try {
                 val localVersionCode = getLocalVersionCode()
+                val localVersionName = getLocalVersionName()
                 val conn = (URL(releaseApi).openConnection() as HttpURLConnection).apply {
+                    useCaches = false
                     connectTimeout = 8000
                     readTimeout = 8000
                     setRequestProperty("Accept", "application/vnd.github+json")
+                    setRequestProperty("Cache-Control", "no-cache")
                     setRequestProperty("User-Agent", "PantallaIGC-FireTV")
                 }
-                if (conn.responseCode != 200) return@execute
+                if (conn.responseCode != 200) {
+                    reportStatus(
+                        "No se pudo consultar GitHub (código ${conn.responseCode}).",
+                        false,
+                        true
+                    )
+                    return@execute
+                }
 
                 val jsonText = conn.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONObject(jsonText)
                 val body = json.optString("body", "")
-                val vcMatch = Regex("\\[vc:(\\d+)]").find(body) ?: return@execute
-                val remoteVersionCode = vcMatch.groupValues[1].toLongOrNull() ?: return@execute
+                val vcMatch = Regex("\\[vc:(\\d+)]").find(body)
+                val remoteVersionCode = vcMatch?.groupValues?.getOrNull(1)?.toLongOrNull()
+                if (remoteVersionCode == null) {
+                    reportStatus("No se encontró versión válida en el Release.", false, true)
+                    return@execute
+                }
 
-                if (remoteVersionCode <= localVersionCode) return@execute
+                if (remoteVersionCode <= localVersionCode) {
+                    reportStatus(
+                        "Ya tienes la última versión (v$localVersionName).",
+                        false,
+                        false
+                    )
+                    return@execute
+                }
 
-                val assets = json.optJSONArray("assets") ?: return@execute
+                val assets = json.optJSONArray("assets")
                 var apkDownloadUrl: String? = null
-                for (i in 0 until assets.length()) {
-                    val asset = assets.getJSONObject(i)
-                    if (asset.optString("name").endsWith(".apk")) {
-                        apkDownloadUrl = asset.optString("browser_download_url")
-                        break
+                if (assets != null) {
+                    for (i in 0 until assets.length()) {
+                        val asset = assets.getJSONObject(i)
+                        if (asset.optString("name").endsWith(".apk")) {
+                            apkDownloadUrl = asset.optString("browser_download_url")
+                            break
+                        }
                     }
                 }
-                if (apkDownloadUrl.isNullOrBlank()) return@execute
+                if (apkDownloadUrl.isNullOrBlank()) {
+                    reportStatus("El Release nuevo aún no tiene archivo APK.", false, true)
+                    return@execute
+                }
+
+                reportStatus(
+                    "Nueva versión v1.0.$remoteVersionCode encontrada. Descargando...",
+                    true,
+                    false
+                )
 
                 val updatesDir = File(cacheDir, "updates").apply { mkdirs() }
                 val apkFile = File(updatesDir, "Pantalla-IGC-FireTV-update.apk")
 
                 val apkConn = (URL(apkDownloadUrl).openConnection() as HttpURLConnection).apply {
+                    useCaches = false
                     instanceFollowRedirects = true
                     connectTimeout = 15000
                     readTimeout = 30000
                     setRequestProperty("User-Agent", "PantallaIGC-FireTV")
                 }
-                if (apkConn.responseCode != 200) return@execute
+                if (apkConn.responseCode != 200) {
+                    reportStatus(
+                        "Error al descargar actualización (${apkConn.responseCode}).",
+                        false,
+                        true
+                    )
+                    return@execute
+                }
 
                 apkConn.inputStream.use { input ->
                     apkFile.outputStream().use { output ->
@@ -588,6 +700,8 @@ class MainActivity : AppCompatActivity() {
 
                 updatePromptedInSession = true
                 runOnUiThread {
+                    onStatus?.invoke("Descarga lista. Abriendo instalador...", false, false)
+                    activePinDialog?.dismiss()
                     val uri = FileProvider.getUriForFile(
                         this,
                         "${packageName}.fileprovider",
@@ -601,7 +715,13 @@ class MainActivity : AppCompatActivity() {
                     startActivity(intent)
                 }
             } catch (_: Exception) {
-                // Ignora fallos de red silenciosamente para no interrumpir la pantalla
+                if (manual) {
+                    reportStatus(
+                        "No se pudo buscar actualizaciones. Revisa tu conexión.",
+                        false,
+                        true
+                    )
+                }
             }
         }
     }
@@ -614,6 +734,12 @@ class MainActivity : AppCompatActivity() {
         } else {
             pkgInfo.versionCode.toLong()
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun getLocalVersionName(): String {
+        val pkgInfo = packageManager.getPackageInfo(packageName, 0)
+        return pkgInfo.versionName ?: "1.0.${getLocalVersionCode()}"
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
