@@ -29,7 +29,7 @@ interface AdminPanelProps {
   activeConfig: SignageConfig;
   effectiveContent: SignageContent;
   ytStatus: YouTubeLiveStatus;
-  onRefreshStreams: (targetOverride?: string) => Promise<void>;
+  onRefreshStreams: (targetOverride?: string, force?: boolean) => Promise<void>;
   onSavedConfig: (next: RuntimeOverrides) => void;
   onResetConfig: () => Promise<void>;
 }
@@ -123,7 +123,7 @@ export function AdminPanel({
       });
       if (!res.ok) throw new Error('Error al guardar');
       onSavedConfig(payload);
-      await onRefreshStreams(normalizedYoutube.streamsUrl);
+      await onRefreshStreams(normalizedYoutube.streamsUrl, true);
       setFeedback({
         type: 'ok',
         message:
@@ -158,7 +158,7 @@ export function AdminPanel({
       setRecordatorioEntrega(CONFIG.recordatorioEntrega);
       setFeatures(CONFIG.features);
       setContent(CONFIG.defaults);
-      await onRefreshStreams(CONFIG.youtube.streamsUrl);
+      await onRefreshStreams(CONFIG.youtube.streamsUrl, true);
       setFeedback({
         type: 'ok',
         message: 'Se restablecieron los valores predeterminados.',
@@ -179,7 +179,7 @@ export function AdminPanel({
     try {
       const normalizedYoutube = await buildNormalizedYoutube();
       setYoutube(normalizedYoutube);
-      await onRefreshStreams(normalizedYoutube.streamsUrl);
+      await onRefreshStreams(normalizedYoutube.streamsUrl, true);
       setFeedback({
         type: 'ok',
         message: `Canal consultado: ${normalizedYoutube.streamsUrl}. Si deseas aplicarlo en la TV, presiona "Guardar cambios para la TV".`,
@@ -415,6 +415,11 @@ export function AdminPanel({
                   : ytStatus.latestStream
                     ? `Sin en vivo activo ahora. Respaldo actual: "${ytStatus.latestStream.title}"`
                     : 'Sin streamings detectados aún.'}
+              </p>
+              <p className="font-body text-xs mt-1" style={{ color: 'var(--arena)' }}>
+                {ytStatus.streamEndedToday
+                  ? 'Transmisión finalizada en la ventana actual: en modo Automático pasa a Después tras 1 minuto.'
+                  : 'Detección automática activa (sin necesidad de API Key): al terminar el en vivo espera 1 minuto y cambia a Después.'}
               </p>
             </div>
             <span

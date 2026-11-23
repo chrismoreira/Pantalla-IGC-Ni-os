@@ -17,6 +17,8 @@ interface StreamsPayload {
   isLive: boolean;
   liveVideoId: string | null;
   liveTitle: string | null;
+  latestStreamStartTime: string | null;
+  latestStreamEndTime: string | null;
   latestStream: StreamEntry | null;
   streams: StreamEntry[];
 }
@@ -68,9 +70,25 @@ interface RuntimeOverrides {
 
 const DEFAULT_CHANNEL_ID = 'UC78ofRM0f1O4Sg8TWOc6FHg';
 const DEFAULT_HANDLE = '@iglesiagrancomisionsansalv5614';
-const CACHE_TTL_MS = 30_000;
+const CACHE_TTL_MS = 15_000;
+const FORCE_MIN_INTERVAL_MS = 5_000;
 
 let cachedStreams: { timestamp: number; data: StreamsPayload } | null = null;
+
+interface WatchBroadcastInfo {
+  videoId: string;
+  channelId: string | null;
+  title: string | null;
+  isLive: boolean;
+  isLiveContent: boolean;
+  startTimestamp: string | null;
+  endTimestamp: string | null;
+}
+
+const watchInfoCache = new Map<
+  string,
+  { fetchedAt: number; info: WatchBroadcastInfo }
+>();
 
 function getOverridesPath(): string {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -385,6 +403,140 @@ function resolveYouTubeTarget(rawInput: string): ResolvedTarget {
   };
 }
 
+function extractJsonAfterMarker(
+  html: string,
+  marker: string,
+): Record<string, unknown> | null {
+  const idx = html.indexOf(marker);
+  if (idx === -1) return null;
+  const start = html.indexOf('{', idx + marker.length);
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < html.length; i++) {
+    const ch = html[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(html.slice(start, i + 1)) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function parseWatchBroadcastFromHtml(
+  html: string,
+  expectedVideoId?: string,
+): WatchBroadcastInfo | null {
+  const playerResponse =
+    extractJsonAfterMarker(html, 'var ytInitialPlayerResponse =') ??
+    extractJsonAfterMarker(html, 'ytInitialPlayerResponse =');
+
+  const videoDetails = playerResponse?.videoDetails as
+    | {
+        videoId?: string;
+        channelId?: string;
+        title?: string;
+        isLive?: boolean;
+        isLiveContent?: boolean;
+      }
+    | undefined;
+
+  const microformat = (
+    playerResponse?.microformat as
+      | {
+          playerMicroformatRenderer?: {
+            liveBroadcastDetails?: {
+              isLiveNow?: boolean;
+              startTimestamp?: string;
+              endTimestamp?: string;
+            };
+          };
+        }
+      | undefined
+  )?.playerMicroformatRenderer;
+
+  const liveDetails = microformat?.liveBroadcastDetails;
+  const parsedVideoId = videoDetails?.videoId ?? expectedVideoId ?? null;
+  if (!parsedVideoId) return null;
+
+  const metaTitle = html.match(/<meta name="title" content="([^"]+)"/)?.[1]?.trim();
+  const docTitle = html
+    .match(/<title>([^<]+)<\/title>/)?.[1]
+    ?.replace(/\s*-\s*YouTube$/, '')
+    .trim();
+
+  const endTimestamp = liveDetails?.endTimestamp ?? null;
+  const startTimestamp = liveDetails?.startTimestamp ?? null;
+  const isLiveNowFlag = Boolean(videoDetails?.isLive || liveDetails?.isLiveNow);
+  const isLive = isLiveNowFlag && !endTimestamp;
+  const isLiveContent = Boolean(
+    videoDetails?.isLiveContent || isLiveNowFlag || startTimestamp || endTimestamp,
+  );
+
+  return {
+    videoId: parsedVideoId,
+    channelId: videoDetails?.channelId ?? null,
+    title: videoDetails?.title?.trim() || metaTitle || docTitle || null,
+    isLive,
+    isLiveContent,
+    startTimestamp,
+    endTimestamp,
+  };
+}
+
+async function fetchWatchBroadcastInfo(
+  videoId: string,
+  force = false,
+): Promise<WatchBroadcastInfo | null> {
+  const cached = watchInfoCache.get(videoId);
+  if (cached) {
+    const ttl = cached.info.endTimestamp ? 600_000 : CACHE_TTL_MS;
+    const minRefresh = force ? FORCE_MIN_INTERVAL_MS : ttl;
+    if (Date.now() - cached.fetchedAt < minRefresh) {
+      return cached.info;
+    }
+  }
+
+  try {
+    const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      headers: YT_HEADERS,
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const info = parseWatchBroadcastFromHtml(html, videoId);
+    if (info) {
+      watchInfoCache.set(videoId, { fetchedAt: Date.now(), info });
+    }
+    return info;
+  } catch {
+    return null;
+  }
+}
+
 async function detectLiveFromChannelLivePage(
   liveUrl: string,
 ): Promise<{ videoId: string; title: string; channelId: string | null } | null> {
@@ -392,84 +544,54 @@ async function detectLiveFromChannelLivePage(
     const res = await fetch(liveUrl, { headers: YT_HEADERS });
     if (!res.ok) return null;
     const html = await res.text();
-
-    const isLiveNow =
-      /"isLive":true/.test(html) ||
-      /"isLiveNow":true/.test(html) ||
-      /"isLiveBroadcast":true/.test(html);
-    if (!isLiveNow) return null;
-
-    const canonicalMatch = html.match(
-      /<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})"/,
-    );
-    const videoIdMatch =
-      canonicalMatch?.[1] ??
-      html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/)?.[1];
-    if (!videoIdMatch) return null;
-
-    const metaTitle = html.match(/<meta name="title" content="([^"]+)"/)?.[1]?.trim();
-    const docTitle = html
-      .match(/<title>([^<]+)<\/title>/)?.[1]
-      ?.replace(/\s*-\s*YouTube$/, '')
-      .trim();
-    const title = metaTitle || docTitle || 'Transmisión en vivo';
-    const channelMatch = html.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/)?.[1] ?? null;
+    const info = parseWatchBroadcastFromHtml(html);
+    if (!info || !info.isLive) return null;
 
     return {
-      videoId: videoIdMatch,
-      title,
-      channelId: channelMatch,
+      videoId: info.videoId,
+      title: info.title || 'Transmisión en vivo',
+      channelId: info.channelId,
     };
   } catch {
     return null;
   }
 }
 
-async function fetchChannelStreams(rawTarget: string): Promise<StreamsPayload> {
+async function fetchChannelStreams(
+  rawTarget: string,
+  force = false,
+): Promise<StreamsPayload> {
   const target = resolveYouTubeTarget(rawTarget);
 
   if (
     cachedStreams &&
-    Date.now() - cachedStreams.timestamp < CACHE_TTL_MS &&
-    cachedStreams.data.streamsUrl === target.streamsUrl
+    cachedStreams.data.streamsUrl === target.streamsUrl &&
+    Date.now() - cachedStreams.timestamp <
+      (force ? FORCE_MIN_INTERVAL_MS : CACHE_TTL_MS)
   ) {
     return cachedStreams.data;
   }
 
   if (target.kind === 'video') {
-    let title = 'Transmisión seleccionada';
-    let channelId = DEFAULT_CHANNEL_ID;
-    try {
-      const res = await fetch(target.streamsUrl, { headers: YT_HEADERS });
-      if (res.ok) {
-        const html = await res.text();
-        const metaTitle = html
-          .match(/<meta name="title" content="([^"]+)"/)?.[1]
-          ?.trim();
-        const docTitle = html
-          .match(/<title>([^<]+)<\/title>/)?.[1]
-          ?.replace(/\s*-\s*YouTube$/, '')
-          .trim();
-        title = metaTitle || docTitle || title;
-        channelId =
-          html.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/)?.[1] ?? channelId;
-      }
-    } catch {
-      // Keep fallback title
-    }
+    const watchInfo = await fetchWatchBroadcastInfo(target.value, force);
+    const title = watchInfo?.title || 'Transmisión seleccionada';
+    const channelId = watchInfo?.channelId || DEFAULT_CHANNEL_ID;
+    const isLive = Boolean(watchInfo?.isLive);
 
     const entry: StreamEntry = {
       videoId: target.value,
       title,
-      publishedText: 'Video seleccionado',
-      isLive: true,
+      publishedText: isLive ? 'En vivo ahora' : 'Video seleccionado',
+      isLive,
     };
     const payload: StreamsPayload = {
       channelId,
       streamsUrl: target.streamsUrl,
-      isLive: true,
-      liveVideoId: target.value,
-      liveTitle: title,
+      isLive,
+      liveVideoId: isLive ? target.value : null,
+      liveTitle: isLive ? title : null,
+      latestStreamStartTime: watchInfo?.startTimestamp ?? null,
+      latestStreamEndTime: watchInfo?.endTimestamp ?? null,
       latestStream: entry,
       streams: [entry],
     };
@@ -505,6 +627,27 @@ async function fetchChannelStreams(rawTarget: string): Promise<StreamsPayload> {
   }
 
   const latestStream = streams[0] ?? null;
+  let latestStreamStartTime: string | null = null;
+  let latestStreamEndTime: string | null = null;
+
+  // When no live item is detected on /streams, inspect the top stream's watch page for exact start/end timestamps
+  if (!liveItem && latestStream) {
+    const watchInfo = await fetchWatchBroadcastInfo(latestStream.videoId, force);
+    if (watchInfo) {
+      if (watchInfo.isLive) {
+        liveItem = {
+          videoId: latestStream.videoId,
+          title: watchInfo.title || latestStream.title,
+          publishedText: 'En vivo ahora',
+          isLive: true,
+        };
+        latestStream.isLive = true;
+      } else {
+        latestStreamStartTime = watchInfo.startTimestamp;
+        latestStreamEndTime = watchInfo.endTimestamp;
+      }
+    }
+  }
 
   const payload: StreamsPayload = {
     channelId,
@@ -512,6 +655,8 @@ async function fetchChannelStreams(rawTarget: string): Promise<StreamsPayload> {
     isLive: Boolean(liveItem),
     liveVideoId: liveItem?.videoId ?? null,
     liveTitle: liveItem?.title ?? null,
+    latestStreamStartTime,
+    latestStreamEndTime,
     latestStream,
     streams,
   };
@@ -531,6 +676,7 @@ async function startServer() {
   app.get('/api/youtube/streams', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     const overrides = readOverrides();
+    const force = req.query.force === '1';
     const rawTarget =
       typeof req.query.target === 'string' && req.query.target.trim()
         ? req.query.target.trim()
@@ -542,7 +688,7 @@ async function startServer() {
             DEFAULT_HANDLE;
 
     try {
-      const payload = await fetchChannelStreams(rawTarget);
+      const payload = await fetchChannelStreams(rawTarget, force);
       res.json(payload);
     } catch {
       res.status(200).json({
@@ -551,6 +697,8 @@ async function startServer() {
         isLive: false,
         liveVideoId: null,
         liveTitle: null,
+        latestStreamStartTime: null,
+        latestStreamEndTime: null,
         latestStream: null,
         streams: [],
       } satisfies StreamsPayload);

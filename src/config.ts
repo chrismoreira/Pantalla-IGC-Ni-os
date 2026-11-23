@@ -44,6 +44,7 @@ export interface SignageConfig {
     streamsUrl: string;
     apiKey: string;
     pollIntervalMs: number;
+    endDelaySeconds: number;
   };
   sheets: {
     googleSheetCsvUrl: string;
@@ -78,6 +79,7 @@ export const CONFIG: SignageConfig = {
     streamsUrl: 'https://www.youtube.com/@iglesiagrancomisionsansalv5614/streams',
     apiKey: '',
     pollIntervalMs: 90_000,
+    endDelaySeconds: 60,
   },
   sheets: {
     googleSheetCsvUrl: '',

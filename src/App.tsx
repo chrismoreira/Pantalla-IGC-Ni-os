@@ -13,7 +13,11 @@ import {
   SignageContent,
 } from './config';
 import { fetchSignageFromGoogleSheet } from './utils/sheets';
-import { getElSalvadorNow, getServiceWindowState } from './utils/time';
+import {
+  getElSalvadorNow,
+  getServiceWindowState,
+  isTimestampInWindow,
+} from './utils/time';
 import {
   fetchChannelStreams,
   pollYouTubeLiveStatus,
@@ -142,9 +146,16 @@ export default function App() {
     isLive: false,
     liveVideoId: null,
     liveTitle: null,
+    latestStreamStartTime: null,
+    latestStreamEndTime: null,
     latestStream: null,
     streams: [],
     streamEndedToday: false,
+  });
+  const [streamEndedAtMs, setStreamEndedAtMs] = useState<number | null>(null);
+  const wasLiveForCycleRef = useRef<{ cycleStartMs: number; wasLive: boolean }>({
+    cycleStartMs: 0,
+    wasLive: false,
   });
 
   const lastConfigJsonRef = useRef<string>('');
@@ -243,14 +254,42 @@ export default function App() {
   }, []);
 
   const svNow = useMemo(() => getElSalvadorNow(nowMs), [nowMs]);
-  const windowInfo = useMemo(
+  const baseWindowInfo = useMemo(
     () =>
       getServiceWindowState(
         nowMs,
-        ytStatus.streamEndedToday,
+        false,
         activeConfig.schedule,
       ),
-    [nowMs, ytStatus.streamEndedToday, activeConfig.schedule],
+    [nowMs, activeConfig.schedule],
+  );
+
+  // Reset per-service cycle stream-end tracking whenever a new service cycle begins or schedule changes
+  useEffect(() => {
+    if (wasLiveForCycleRef.current.cycleStartMs !== baseWindowInfo.serviceStartMs) {
+      wasLiveForCycleRef.current = {
+        cycleStartMs: baseWindowInfo.serviceStartMs,
+        wasLive: false,
+      };
+      setStreamEndedAtMs(null);
+    }
+  }, [baseWindowInfo.serviceStartMs]);
+
+  const endDelayMs = Math.max(0, activeConfig.youtube.endDelaySeconds) * 1000;
+  const streamEndedToday =
+    streamEndedAtMs !== null && nowMs - streamEndedAtMs >= endDelayMs;
+
+  const autoScreen: ActiveScreen =
+    baseWindowInfo.isWithinTodayServiceWindow && streamEndedToday
+      ? 'despues'
+      : baseWindowInfo.autoScreen;
+
+  const windowInfo = useMemo(
+    () => ({
+      ...baseWindowInfo,
+      autoScreen,
+    }),
+    [baseWindowInfo, autoScreen],
   );
 
   const effectiveScreen: ActiveScreen =
@@ -295,44 +334,79 @@ export default function App() {
   ]);
 
   const refreshStreams = useCallback(
-    async (targetOverride?: string) => {
+    async (targetOverride?: string, force = false) => {
       const target =
         targetOverride?.trim() ||
         activeConfig.youtube.streamsUrl ||
         activeConfig.youtube.channelHandle ||
         activeConfig.youtube.channelId;
 
-      const channelData = await fetchChannelStreams(target);
+      const channelData = await fetchChannelStreams(target, force);
+
+      let combinedIsLive = channelData.isLive;
+      let combinedLiveVideoId = channelData.liveVideoId;
+      let combinedLiveTitle = channelData.liveTitle;
+      let endedAtMs: number | null = null;
 
       if (!targetOverride && activeConfig.youtube.apiKey.trim()) {
         const apiResult = await pollYouTubeLiveStatus(
           channelData.channelId || activeConfig.youtube.channelId,
           activeConfig.youtube.apiKey,
-          windowInfo.serviceStartMs,
-          windowInfo.serviceEndMs,
+          baseWindowInfo.serviceStartMs,
+          baseWindowInfo.serviceEndMs,
         );
-        setYtStatus({
-          channelId: channelData.channelId,
-          streamsUrl: channelData.streamsUrl,
-          isLive: apiResult.isLive || channelData.isLive,
-          liveVideoId: apiResult.liveVideoId ?? channelData.liveVideoId,
-          liveTitle: apiResult.liveTitle ?? channelData.liveTitle,
-          latestStream: channelData.latestStream,
-          streams: channelData.streams,
-          streamEndedToday: apiResult.streamEndedToday,
-        });
-        return;
+        combinedIsLive = apiResult.isLive || channelData.isLive;
+        combinedLiveVideoId = apiResult.liveVideoId ?? channelData.liveVideoId;
+        combinedLiveTitle = apiResult.liveTitle ?? channelData.liveTitle;
+        if (apiResult.streamEndedToday) {
+          endedAtMs = apiResult.endedAtMs ?? Date.now();
+        }
+      }
+
+      if (
+        endedAtMs === null &&
+        channelData.latestStreamEndTime &&
+        isTimestampInWindow(
+          channelData.latestStreamEndTime,
+          baseWindowInfo.serviceStartMs,
+          baseWindowInfo.serviceEndMs,
+        )
+      ) {
+        const parsed = Date.parse(channelData.latestStreamEndTime);
+        if (!Number.isNaN(parsed)) {
+          endedAtMs = parsed;
+        }
+      }
+
+      if (!targetOverride) {
+        const cycleStart = baseWindowInfo.serviceStartMs;
+        if (combinedIsLive) {
+          wasLiveForCycleRef.current = { cycleStartMs: cycleStart, wasLive: true };
+          setStreamEndedAtMs(null);
+        } else if (endedAtMs !== null) {
+          setStreamEndedAtMs((prev) =>
+            prev === null ? endedAtMs : Math.min(prev, endedAtMs),
+          );
+        } else if (
+          wasLiveForCycleRef.current.cycleStartMs === cycleStart &&
+          wasLiveForCycleRef.current.wasLive
+        ) {
+          setStreamEndedAtMs((prev) => prev ?? Date.now());
+        }
       }
 
       setYtStatus({
         channelId: channelData.channelId,
         streamsUrl: channelData.streamsUrl,
-        isLive: channelData.isLive,
-        liveVideoId: channelData.liveVideoId,
-        liveTitle: channelData.liveTitle,
+        isLive: combinedIsLive,
+        liveVideoId: combinedLiveVideoId,
+        liveTitle: combinedLiveTitle,
+        latestStreamStartTime: channelData.latestStreamStartTime ?? null,
+        latestStreamEndTime: channelData.latestStreamEndTime ?? null,
+        endedAtMs,
         latestStream: channelData.latestStream,
         streams: channelData.streams,
-        streamEndedToday: false,
+        streamEndedToday: endedAtMs !== null,
       });
     },
     [
@@ -340,20 +414,45 @@ export default function App() {
       activeConfig.youtube.channelHandle,
       activeConfig.youtube.channelId,
       activeConfig.youtube.apiKey,
-      windowInfo.serviceStartMs,
-      windowInfo.serviceEndMs,
+      baseWindowInfo.serviceStartMs,
+      baseWindowInfo.serviceEndMs,
     ],
   );
 
-  // Poll channel /streams endpoint + optional YouTube Data API v3 (every 90 seconds)
+  // Poll YouTube every 15s during live window (or vivo screen) to catch stream end promptly, 90s otherwise
+  const activePollMs =
+    baseWindowInfo.isWithinTodayServiceWindow || effectiveScreen === 'vivo'
+      ? Math.min(activeConfig.youtube.pollIntervalMs, 15_000)
+      : activeConfig.youtube.pollIntervalMs;
+
   useEffect(() => {
     void refreshStreams();
     const interval = window.setInterval(() => {
       void refreshStreams();
-    }, activeConfig.youtube.pollIntervalMs);
+    }, activePollMs);
 
     return () => window.clearInterval(interval);
-  }, [refreshStreams, activeConfig.youtube.pollIntervalMs]);
+  }, [refreshStreams, activePollMs]);
+
+  const handleStreamPlaybackEnded = useCallback(() => {
+    if (
+      baseWindowInfo.isWithinTodayServiceWindow &&
+      (wasLiveForCycleRef.current.wasLive || ytStatus.isLive)
+    ) {
+      setStreamEndedAtMs((prev) => prev ?? Date.now());
+    }
+    void refreshStreams(undefined, true);
+  }, [baseWindowInfo.isWithinTodayServiceWindow, ytStatus.isLive, refreshStreams]);
+
+  const handleStreamPlaybackActive = useCallback(() => {
+    if (ytStatus.isLive) {
+      wasLiveForCycleRef.current = {
+        cycleStartMs: baseWindowInfo.serviceStartMs,
+        wasLive: true,
+      };
+      setStreamEndedAtMs(null);
+    }
+  }, [ytStatus.isLive, baseWindowInfo.serviceStartMs]);
 
   const handlePrevMoment = useCallback(() => {
     setCurrentMoment((prev) => Math.max(0, prev - 1));
@@ -519,6 +618,8 @@ export default function App() {
             stageScale={stageScale}
             showTemasYAnuncios={activeConfig.features.showTemasYAnuncios}
             showMomentosSidebar={activeConfig.features.showMomentosSidebar}
+            onStreamPlaybackEnded={handleStreamPlaybackEnded}
+            onStreamPlaybackActive={handleStreamPlaybackActive}
           />
         )}
 

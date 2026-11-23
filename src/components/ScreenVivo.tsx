@@ -21,6 +21,8 @@ interface ScreenVivoProps {
   stageScale?: number;
   showTemasYAnuncios?: boolean;
   showMomentosSidebar?: boolean;
+  onStreamPlaybackEnded?: () => void;
+  onStreamPlaybackActive?: () => void;
 }
 
 interface VideoBoxRect {
@@ -45,6 +47,8 @@ export function ScreenVivo({
   stageScale = 1,
   showTemasYAnuncios = false,
   showMomentosSidebar = false,
+  onStreamPlaybackEnded,
+  onStreamPlaybackActive,
 }: ScreenVivoProps) {
   const clockLabel = formatClock12h(svNow);
   const embedUrl = buildYouTubeEmbedUrl(
@@ -57,6 +61,11 @@ export function ScreenVivo({
   const playerHeight = showMomentosSidebar ? 731 : showTemasYAnuncios ? 788 : 900;
 
   const slotRef = useRef<HTMLDivElement | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const onEndedRef = useRef(onStreamPlaybackEnded);
+  const onActiveRef = useRef(onStreamPlaybackActive);
+  onEndedRef.current = onStreamPlaybackEnded;
+  onActiveRef.current = onStreamPlaybackActive;
   const [videoRect, setVideoRect] = useState<VideoBoxRect | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
@@ -99,6 +108,82 @@ export function ScreenVivo({
     window.addEventListener('resize', measureSlot);
     return () => window.removeEventListener('resize', measureSlot);
   }, [measureSlot]);
+
+  const sendYouTubeListening = useCallback(() => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    try {
+      win.postMessage(
+        JSON.stringify({
+          event: 'listening',
+          id: 'igc-youtube-player',
+          channel: 'widget',
+        }),
+        '*',
+      );
+    } catch {
+      // Ignore cross-origin postMessage errors before iframe readiness
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleYouTubeMessage = (event: MessageEvent) => {
+      if (
+        typeof event.origin === 'string' &&
+        !event.origin.includes('youtube.com') &&
+        !event.origin.includes('youtube-nocookie.com')
+      ) {
+        return;
+      }
+
+      let payload: unknown = event.data;
+      if (typeof payload === 'string') {
+        try {
+          payload = JSON.parse(payload);
+        } catch {
+          return;
+        }
+      }
+      if (!payload || typeof payload !== 'object') return;
+
+      const msg = payload as {
+        event?: string;
+        info?: number | { playerState?: number };
+      };
+
+      if (msg.event === 'onReady') {
+        sendYouTubeListening();
+        return;
+      }
+
+      const playerState =
+        msg.event === 'onStateChange' && typeof msg.info === 'number'
+          ? msg.info
+          : msg.event === 'infoDelivery' &&
+              msg.info &&
+              typeof msg.info === 'object'
+            ? msg.info.playerState
+            : undefined;
+
+      if (playerState === 0) {
+        onEndedRef.current?.();
+      } else if (playerState === 1) {
+        onActiveRef.current?.();
+      }
+    };
+
+    window.addEventListener('message', handleYouTubeMessage);
+    return () => window.removeEventListener('message', handleYouTubeMessage);
+  }, [sendYouTubeListening]);
+
+  useEffect(() => {
+    const t1 = window.setTimeout(sendYouTubeListening, 600);
+    const t2 = window.setTimeout(sendYouTubeListening, 1800);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [embedUrl, sendYouTubeListening]);
 
   return (
     <div
@@ -383,6 +468,8 @@ export function ScreenVivo({
             }}
           >
             <iframe
+              id="igc-youtube-player"
+              ref={iframeRef}
               key={`${channelId}-${liveVideoId ?? 'channel'}-${muted ? 'm1' : 'm0'}`}
               src={embedUrl}
               title="Transmisión en vivo Iglesia Gran Comisión"
@@ -390,6 +477,7 @@ export function ScreenVivo({
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowFullScreen
               referrerPolicy="strict-origin-when-cross-origin"
+              onLoad={sendYouTubeListening}
             />
           </div>,
           portalTarget,

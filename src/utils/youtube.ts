@@ -13,6 +13,9 @@ export interface YouTubeLiveStatus {
   isLive: boolean;
   liveVideoId: string | null;
   liveTitle: string | null;
+  latestStreamStartTime?: string | null;
+  latestStreamEndTime?: string | null;
+  endedAtMs?: number | null;
   latestStream: StreamEntry | null;
   streams: StreamEntry[];
   streamEndedToday: boolean;
@@ -20,10 +23,12 @@ export interface YouTubeLiveStatus {
 
 export async function fetchChannelStreams(
   channelTarget: string,
-): Promise<Omit<YouTubeLiveStatus, 'streamEndedToday'>> {
+  force = false,
+): Promise<Omit<YouTubeLiveStatus, 'streamEndedToday' | 'endedAtMs'>> {
   try {
+    const forceQuery = force ? '&force=1' : '';
     const res = await fetch(
-      `/api/youtube/streams?target=${encodeURIComponent(channelTarget)}&t=${Date.now()}`,
+      `/api/youtube/streams?target=${encodeURIComponent(channelTarget)}${forceQuery}&t=${Date.now()}`,
       { cache: 'no-store' },
     );
     if (!res.ok) {
@@ -31,6 +36,8 @@ export async function fetchChannelStreams(
         isLive: false,
         liveVideoId: null,
         liveTitle: null,
+        latestStreamStartTime: null,
+        latestStreamEndTime: null,
         latestStream: null,
         streams: [],
       };
@@ -41,6 +48,8 @@ export async function fetchChannelStreams(
       isLive?: boolean;
       liveVideoId?: string | null;
       liveTitle?: string | null;
+      latestStreamStartTime?: string | null;
+      latestStreamEndTime?: string | null;
       latestStream?: StreamEntry | null;
       streams?: StreamEntry[];
     };
@@ -50,6 +59,8 @@ export async function fetchChannelStreams(
       isLive: Boolean(data.isLive),
       liveVideoId: data.liveVideoId ?? null,
       liveTitle: data.liveTitle ?? null,
+      latestStreamStartTime: data.latestStreamStartTime ?? null,
+      latestStreamEndTime: data.latestStreamEndTime ?? null,
       latestStream: data.latestStream ?? null,
       streams: Array.isArray(data.streams) ? data.streams : [],
     };
@@ -58,6 +69,8 @@ export async function fetchChannelStreams(
       isLive: false,
       liveVideoId: null,
       liveTitle: null,
+      latestStreamStartTime: null,
+      latestStreamEndTime: null,
       latestStream: null,
       streams: [],
     };
@@ -214,27 +227,32 @@ export async function pollYouTubeLiveStatus(
       };
     }
 
-    const endedInServiceWindow = items.some((item) =>
+    const endedItem = items.find((item) =>
       isTimestampInWindow(
         item.liveStreamingDetails?.actualEndTime,
         serviceStartMs,
         serviceEndMs,
       ),
     );
+    const parsedEndMs = endedItem?.liveStreamingDetails?.actualEndTime
+      ? Date.parse(endedItem.liveStreamingDetails.actualEndTime)
+      : NaN;
 
     return {
       isLive: false,
       liveVideoId: null,
       liveTitle: null,
+      endedAtMs: Number.isNaN(parsedEndMs) ? null : parsedEndMs,
       latestStream: null,
       streams: [],
-      streamEndedToday: endedInServiceWindow,
+      streamEndedToday: Boolean(endedItem),
     };
   } catch {
     return {
       isLive: false,
       liveVideoId: null,
       liveTitle: null,
+      endedAtMs: null,
       latestStream: null,
       streams: [],
       streamEndedToday: false,
