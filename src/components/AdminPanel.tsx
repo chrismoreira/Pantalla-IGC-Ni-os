@@ -12,13 +12,14 @@ import {
   ActiveScreen,
   AnnouncementItem,
   CONFIG,
+  ModeSetting,
   RuntimeOverrides,
   SignageConfig,
   SignageContent,
 } from '../config';
 import { fetchSignageFromGoogleSheet } from '../utils/sheets';
 import { ElSalvadorWallTime, formatClock12h, formatDateEs } from '../utils/time';
-import { YouTubeLiveStatus } from '../utils/youtube';
+import { fetchChannelStreams, YouTubeLiveStatus } from '../utils/youtube';
 import { IgcLogo } from './IgcLogo';
 
 interface AdminPanelProps {
@@ -27,7 +28,7 @@ interface AdminPanelProps {
   activeConfig: SignageConfig;
   effectiveContent: SignageContent;
   ytStatus: YouTubeLiveStatus;
-  onRefreshStreams: () => Promise<void>;
+  onRefreshStreams: (targetOverride?: string) => Promise<void>;
   onSavedConfig: (next: RuntimeOverrides) => void;
   onResetConfig: () => Promise<void>;
 }
@@ -59,6 +60,10 @@ export function AdminPanel({
     streamsUrl: activeConfig.youtube.streamsUrl,
     apiKey: activeConfig.youtube.apiKey,
   });
+  const [youtubeInput, setYoutubeInput] = useState(
+    activeConfig.youtube.streamsUrl || activeConfig.youtube.channelHandle,
+  );
+  const [forcedMode, setForcedMode] = useState<ModeSetting>(activeConfig.forcedMode);
   const [sheetUrl, setSheetUrl] = useState(activeConfig.sheets.googleSheetCsvUrl);
   const [recordatorioEntrega, setRecordatorioEntrega] = useState(
     activeConfig.recordatorioEntrega,
@@ -74,20 +79,37 @@ export function AdminPanel({
     message: string;
   } | null>(null);
 
+  const buildNormalizedYoutube = async () => {
+    const raw = youtubeInput.trim() || CONFIG.youtube.channelHandle;
+    const probed = await fetchChannelStreams(raw);
+    const resolvedStreamsUrl = probed.streamsUrl || raw;
+    const handleMatch = resolvedStreamsUrl.match(/\/(@[a-zA-Z0-9._-]+)/);
+    return {
+      channelId: probed.channelId || youtube.channelId || CONFIG.youtube.channelId,
+      channelHandle: handleMatch?.[1] ?? (raw.startsWith('@') ? raw : ''),
+      streamsUrl: resolvedStreamsUrl,
+      apiKey: youtube.apiKey,
+    };
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setFeedback(null);
 
-    const payload: RuntimeOverrides = {
-      schedule,
-      youtube,
-      sheets: { googleSheetCsvUrl: sheetUrl.trim() },
-      recordatorioEntrega,
-      features,
-      content,
-    };
-
     try {
+      const normalizedYoutube = await buildNormalizedYoutube();
+      setYoutube(normalizedYoutube);
+
+      const payload: RuntimeOverrides = {
+        schedule,
+        youtube: normalizedYoutube,
+        sheets: { googleSheetCsvUrl: sheetUrl.trim() },
+        recordatorioEntrega,
+        forcedMode,
+        features,
+        content,
+      };
+
       const res = await fetch('/api/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -95,10 +117,11 @@ export function AdminPanel({
       });
       if (!res.ok) throw new Error('Error al guardar');
       onSavedConfig(payload);
+      await onRefreshStreams(normalizedYoutube.streamsUrl);
       setFeedback({
         type: 'ok',
         message:
-          'Cambios guardados. La pantalla del televisor se actualizará automáticamente.',
+          'Cambios guardados. La pantalla del televisor se actualizará automáticamente en unos segundos.',
       });
     } catch {
       setFeedback({
@@ -122,10 +145,13 @@ export function AdminPanel({
         streamsUrl: CONFIG.youtube.streamsUrl,
         apiKey: CONFIG.youtube.apiKey,
       });
+      setYoutubeInput(CONFIG.youtube.streamsUrl);
+      setForcedMode(CONFIG.forcedMode);
       setSheetUrl(CONFIG.sheets.googleSheetCsvUrl);
       setRecordatorioEntrega(CONFIG.recordatorioEntrega);
       setFeatures(CONFIG.features);
       setContent(CONFIG.defaults);
+      await onRefreshStreams(CONFIG.youtube.streamsUrl);
       setFeedback({
         type: 'ok',
         message: 'Se restablecieron los valores predeterminados.',
@@ -142,8 +168,37 @@ export function AdminPanel({
 
   const handleRefreshYouTube = async () => {
     setRefreshingYt(true);
-    await onRefreshStreams();
+    setFeedback(null);
+    try {
+      const normalizedYoutube = await buildNormalizedYoutube();
+      setYoutube(normalizedYoutube);
+      await onRefreshStreams(normalizedYoutube.streamsUrl);
+      setFeedback({
+        type: 'ok',
+        message: `Canal consultado: ${normalizedYoutube.streamsUrl}. Si deseas aplicarlo en la TV, presiona "Guardar cambios para la TV".`,
+      });
+    } finally {
+      setRefreshingYt(false);
+    }
+  };
+
+  const handleRestoreIgcChannel = async () => {
+    setYoutubeInput(CONFIG.youtube.streamsUrl);
+    setForcedMode('auto');
+    setRefreshingYt(true);
+    setYoutube({
+      channelId: CONFIG.youtube.channelId,
+      channelHandle: CONFIG.youtube.channelHandle,
+      streamsUrl: CONFIG.youtube.streamsUrl,
+      apiKey: youtube.apiKey,
+    });
+    await onRefreshStreams(CONFIG.youtube.streamsUrl);
     setRefreshingYt(false);
+    setFeedback({
+      type: 'ok',
+      message:
+        'Canal IGC y modo Automático cargados. Presiona "Guardar cambios para la TV" para aplicarlo.',
+    });
   };
 
   const handleTestSheet = async () => {
@@ -267,22 +322,76 @@ export function AdminPanel({
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={handleRefreshYouTube}
-              disabled={refreshingYt}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-display text-sm font-bold"
-              style={{
-                backgroundColor: 'var(--amarillo)',
-                color: 'var(--verde3)',
-              }}
-            >
-              <RefreshCw
-                size={16}
-                className={refreshingYt ? 'animate-spin' : ''}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleRestoreIgcChannel}
+                disabled={refreshingYt}
+                className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-lg font-display text-sm font-bold"
+                style={{
+                  backgroundColor: 'var(--verde2)',
+                  color: 'var(--crema)',
+                }}
+              >
+                Restaurar canal IGC
+              </button>
+
+              <button
+                type="button"
+                onClick={handleRefreshYouTube}
+                disabled={refreshingYt}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-display text-sm font-bold"
+                style={{
+                  backgroundColor: 'var(--amarillo)',
+                  color: 'var(--verde3)',
+                }}
+              >
+                <RefreshCw
+                  size={16}
+                  className={refreshingYt ? 'animate-spin' : ''}
+                />
+                {refreshingYt ? 'Consultando...' : 'Probar canal ahora'}
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+            <label className="block md:col-span-8">
+              <span
+                className="font-display text-xs font-bold uppercase tracking-wider block mb-1.5"
+                style={{ color: 'var(--arena)' }}
+              >
+                Canal o transmisión de YouTube (acepta @handle, URL del canal o enlace de video)
+              </span>
+              <input
+                type="text"
+                value={youtubeInput}
+                onChange={(e) => setYoutubeInput(e.target.value)}
+                placeholder="Ej: @NASA, https://www.youtube.com/@dwespanol/streams o https://www.youtube.com/watch?v=..."
+                className="w-full rounded-lg px-3.5 py-2.5 text-sm font-medium"
+                style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
               />
-              {refreshingYt ? 'Consultando...' : 'Actualizar streamings'}
-            </button>
+            </label>
+
+            <label className="block md:col-span-4">
+              <span
+                className="font-display text-xs font-bold uppercase tracking-wider block mb-1.5"
+                style={{ color: 'var(--arena)' }}
+              >
+                Pantalla global en TV (para pruebas)
+              </span>
+              <select
+                value={forcedMode}
+                onChange={(e) => setForcedMode(e.target.value as ModeSetting)}
+                className="w-full rounded-lg px-3.5 py-2.5 text-sm font-semibold"
+                style={{ backgroundColor: 'var(--verde3)', color: 'var(--crema)' }}
+              >
+                <option value="auto">Automático (según horario)</option>
+                <option value="vivo">Forzar En vivo (ideal para pruebas)</option>
+                <option value="antes">Forzar Antes</option>
+                <option value="despues">Forzar Después</option>
+              </select>
+            </label>
           </div>
 
           <div
@@ -291,7 +400,7 @@ export function AdminPanel({
           >
             <div>
               <p className="font-display text-sm font-bold" style={{ color: 'var(--turquesa)' }}>
-                Canal conectado: {youtube.streamsUrl}
+                Canal conectado: {ytStatus.streamsUrl || youtube.streamsUrl}
               </p>
               <p className="font-body text-sm mt-1" style={{ color: 'var(--crema)' }}>
                 {ytStatus.isLive

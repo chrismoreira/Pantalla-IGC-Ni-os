@@ -51,6 +51,7 @@ export interface SignageConfig {
   };
   momentos: string[];
   recordatorioEntrega: string;
+  forcedMode: ModeSetting;
   features: {
     showTemasYAnuncios: boolean;
     showMomentosSidebar: boolean;
@@ -91,6 +92,7 @@ export const CONFIG: SignageConfig = {
   ],
   recordatorioEntrega:
     'Recuerda entregar a cada niño únicamente a la persona que lo registró, verificando el brazalete correspondiente.',
+  forcedMode: 'auto',
   features: {
     showTemasYAnuncios: false,
     showMomentosSidebar: false,
@@ -177,6 +179,7 @@ export interface RuntimeOverrides {
     googleSheetCsvUrl: string;
   };
   recordatorioEntrega?: string;
+  forcedMode?: ModeSetting;
   features?: {
     showTemasYAnuncios?: boolean;
     showMomentosSidebar?: boolean;
@@ -201,6 +204,7 @@ export function mergeWithRuntimeConfig(
     },
     recordatorioEntrega:
       overrides.recordatorioEntrega ?? CONFIG.recordatorioEntrega,
+    forcedMode: overrides.forcedMode ?? CONFIG.forcedMode,
     features: {
       ...CONFIG.features,
       ...(overrides.features ?? {}),

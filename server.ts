@@ -39,6 +39,7 @@ interface RuntimeOverrides {
     googleSheetCsvUrl: string;
   };
   recordatorioEntrega?: string;
+  forcedMode?: 'auto' | 'antes' | 'vivo' | 'despues';
   features?: {
     showTemasYAnuncios?: boolean;
     showMomentosSidebar?: boolean;
@@ -261,40 +262,251 @@ function extractStreamEntries(html: string): {
   return { channelId, streams };
 }
 
-async function fetchChannelStreams(handle: string): Promise<StreamsPayload> {
-  const safeHandle = /^@[a-zA-Z0-9._-]+$/.test(handle)
-    ? handle
-    : DEFAULT_HANDLE;
-  const streamsUrl = `https://www.youtube.com/${safeHandle}/streams`;
+const YT_HEADERS = {
+  'Accept-Language': 'es-SV,es;q=0.9,en;q=0.8',
+  'User-Agent':
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+};
+
+interface ResolvedTarget {
+  kind: 'handle' | 'channel' | 'video';
+  value: string;
+  streamsUrl: string;
+  liveUrl?: string;
+}
+
+function resolveYouTubeTarget(rawInput: string): ResolvedTarget {
+  const input = rawInput.trim();
+  if (!input) {
+    return {
+      kind: 'handle',
+      value: DEFAULT_HANDLE,
+      streamsUrl: `https://www.youtube.com/${DEFAULT_HANDLE}/streams`,
+      liveUrl: `https://www.youtube.com/${DEFAULT_HANDLE}/live`,
+    };
+  }
+
+  // Direct video ID (11 chars)
+  if (/^[a-zA-Z0-9_-]{11}$/.test(input)) {
+    return {
+      kind: 'video',
+      value: input,
+      streamsUrl: `https://www.youtube.com/watch?v=${input}`,
+    };
+  }
+
+  // Direct channel ID (UC...)
+  if (/^UC[a-zA-Z0-9_-]{22}$/.test(input)) {
+    return {
+      kind: 'channel',
+      value: input,
+      streamsUrl: `https://www.youtube.com/channel/${input}/streams`,
+      liveUrl: `https://www.youtube.com/channel/${input}/live`,
+    };
+  }
+
+  // Direct @handle
+  if (/^@[a-zA-Z0-9._-]+$/.test(input)) {
+    return {
+      kind: 'handle',
+      value: input,
+      streamsUrl: `https://www.youtube.com/${input}/streams`,
+      liveUrl: `https://www.youtube.com/${input}/live`,
+    };
+  }
+
+  // Try URL parsing
+  try {
+    const normalizedUrl = input.startsWith('http') ? input : `https://${input}`;
+    const url = new URL(normalizedUrl);
+    const host = url.hostname.toLowerCase();
+
+    if (host.includes('youtu.be')) {
+      const vid = url.pathname.replace(/^\/+/, '').split('/')[0];
+      if (vid && /^[a-zA-Z0-9_-]{11}$/.test(vid)) {
+        return {
+          kind: 'video',
+          value: vid,
+          streamsUrl: `https://www.youtube.com/watch?v=${vid}`,
+        };
+      }
+    }
+
+    if (host.includes('youtube.com')) {
+      const watchV = url.searchParams.get('v');
+      if (watchV && /^[a-zA-Z0-9_-]{11}$/.test(watchV)) {
+        return {
+          kind: 'video',
+          value: watchV,
+          streamsUrl: `https://www.youtube.com/watch?v=${watchV}`,
+        };
+      }
+
+      const livePathMatch = url.pathname.match(/^\/live\/([a-zA-Z0-9_-]{11})/);
+      if (livePathMatch) {
+        return {
+          kind: 'video',
+          value: livePathMatch[1],
+          streamsUrl: `https://www.youtube.com/watch?v=${livePathMatch[1]}`,
+        };
+      }
+
+      const channelMatch = url.pathname.match(/^\/channel\/(UC[a-zA-Z0-9_-]{22})/);
+      if (channelMatch) {
+        return {
+          kind: 'channel',
+          value: channelMatch[1],
+          streamsUrl: `https://www.youtube.com/channel/${channelMatch[1]}/streams`,
+          liveUrl: `https://www.youtube.com/channel/${channelMatch[1]}/live`,
+        };
+      }
+
+      const handleMatch = url.pathname.match(/^\/(@[a-zA-Z0-9._-]+)/);
+      if (handleMatch) {
+        return {
+          kind: 'handle',
+          value: handleMatch[1],
+          streamsUrl: `https://www.youtube.com/${handleMatch[1]}/streams`,
+          liveUrl: `https://www.youtube.com/${handleMatch[1]}/live`,
+        };
+      }
+    }
+  } catch {
+    // Fallback below
+  }
+
+  return {
+    kind: 'handle',
+    value: DEFAULT_HANDLE,
+    streamsUrl: `https://www.youtube.com/${DEFAULT_HANDLE}/streams`,
+    liveUrl: `https://www.youtube.com/${DEFAULT_HANDLE}/live`,
+  };
+}
+
+async function detectLiveFromChannelLivePage(
+  liveUrl: string,
+): Promise<{ videoId: string; title: string; channelId: string | null } | null> {
+  try {
+    const res = await fetch(liveUrl, { headers: YT_HEADERS });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    const isLiveNow =
+      /"isLive":true/.test(html) ||
+      /"isLiveNow":true/.test(html) ||
+      /"isLiveBroadcast":true/.test(html);
+    if (!isLiveNow) return null;
+
+    const canonicalMatch = html.match(
+      /<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})"/,
+    );
+    const videoIdMatch =
+      canonicalMatch?.[1] ??
+      html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/)?.[1];
+    if (!videoIdMatch) return null;
+
+    const metaTitle = html.match(/<meta name="title" content="([^"]+)"/)?.[1]?.trim();
+    const docTitle = html
+      .match(/<title>([^<]+)<\/title>/)?.[1]
+      ?.replace(/\s*-\s*YouTube$/, '')
+      .trim();
+    const title = metaTitle || docTitle || 'Transmisión en vivo';
+    const channelMatch = html.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/)?.[1] ?? null;
+
+    return {
+      videoId: videoIdMatch,
+      title,
+      channelId: channelMatch,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchChannelStreams(rawTarget: string): Promise<StreamsPayload> {
+  const target = resolveYouTubeTarget(rawTarget);
 
   if (
     cachedStreams &&
     Date.now() - cachedStreams.timestamp < CACHE_TTL_MS &&
-    cachedStreams.data.streamsUrl === streamsUrl
+    cachedStreams.data.streamsUrl === target.streamsUrl
   ) {
     return cachedStreams.data;
   }
 
-  const response = await fetch(streamsUrl, {
-    headers: {
-      'Accept-Language': 'es-SV,es;q=0.9',
-      'User-Agent':
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    },
-  });
+  if (target.kind === 'video') {
+    let title = 'Transmisión seleccionada';
+    let channelId = DEFAULT_CHANNEL_ID;
+    try {
+      const res = await fetch(target.streamsUrl, { headers: YT_HEADERS });
+      if (res.ok) {
+        const html = await res.text();
+        const metaTitle = html
+          .match(/<meta name="title" content="([^"]+)"/)?.[1]
+          ?.trim();
+        const docTitle = html
+          .match(/<title>([^<]+)<\/title>/)?.[1]
+          ?.replace(/\s*-\s*YouTube$/, '')
+          .trim();
+        title = metaTitle || docTitle || title;
+        channelId =
+          html.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/)?.[1] ?? channelId;
+      }
+    } catch {
+      // Keep fallback title
+    }
 
+    const entry: StreamEntry = {
+      videoId: target.value,
+      title,
+      publishedText: 'Video seleccionado',
+      isLive: true,
+    };
+    const payload: StreamsPayload = {
+      channelId,
+      streamsUrl: target.streamsUrl,
+      isLive: true,
+      liveVideoId: target.value,
+      liveTitle: title,
+      latestStream: entry,
+      streams: [entry],
+    };
+    cachedStreams = { timestamp: Date.now(), data: payload };
+    return payload;
+  }
+
+  const response = await fetch(target.streamsUrl, { headers: YT_HEADERS });
   if (!response.ok) {
     throw new Error(`YouTube streams responded with ${response.status}`);
   }
 
   const html = await response.text();
-  const { channelId, streams } = extractStreamEntries(html);
-  const liveItem = streams.find((s) => s.isLive) ?? null;
+  const { channelId: parsedChannelId, streams } = extractStreamEntries(html);
+  const channelId =
+    target.kind === 'channel' ? target.value : parsedChannelId;
+  let liveItem = streams.find((s) => s.isLive) ?? null;
+
+  // Fallback to /live endpoint in case a 24/7 or active broadcast isn't flagged in /streams
+  if (!liveItem && target.liveUrl) {
+    const liveFallback = await detectLiveFromChannelLivePage(target.liveUrl);
+    if (liveFallback) {
+      liveItem = {
+        videoId: liveFallback.videoId,
+        title: liveFallback.title,
+        publishedText: 'En vivo ahora',
+        isLive: true,
+      };
+      if (!streams.some((s) => s.videoId === liveItem?.videoId)) {
+        streams.unshift(liveItem);
+      }
+    }
+  }
+
   const latestStream = streams[0] ?? null;
 
   const payload: StreamsPayload = {
     channelId,
-    streamsUrl,
+    streamsUrl: target.streamsUrl,
     isLive: Boolean(liveItem),
     liveVideoId: liveItem?.videoId ?? null,
     liveTitle: liveItem?.title ?? null,
@@ -316,13 +528,18 @@ async function startServer() {
 
   app.get('/api/youtube/streams', async (req, res) => {
     const overrides = readOverrides();
-    const rawHandle =
-      typeof req.query.handle === 'string'
-        ? req.query.handle
-        : (overrides.youtube?.channelHandle ?? DEFAULT_HANDLE);
+    const rawTarget =
+      typeof req.query.target === 'string' && req.query.target.trim()
+        ? req.query.target.trim()
+        : typeof req.query.handle === 'string' && req.query.handle.trim()
+          ? req.query.handle.trim()
+          : overrides.youtube?.streamsUrl ||
+            overrides.youtube?.channelHandle ||
+            overrides.youtube?.channelId ||
+            DEFAULT_HANDLE;
 
     try {
-      const payload = await fetchChannelStreams(rawHandle);
+      const payload = await fetchChannelStreams(rawTarget);
       res.json(payload);
     } catch {
       res.status(200).json({

@@ -218,7 +218,11 @@ export default function App() {
   );
 
   const effectiveScreen: ActiveScreen =
-    modeSetting === 'auto' ? windowInfo.autoScreen : modeSetting;
+    modeSetting !== 'auto'
+      ? modeSetting
+      : activeConfig.forcedMode !== 'auto'
+        ? activeConfig.forcedMode
+        : windowInfo.autoScreen;
 
   // Google Sheets CSV polling (every 5 minutes)
   useEffect(() => {
@@ -254,44 +258,56 @@ export default function App() {
     activeConfig.defaults,
   ]);
 
-  const refreshStreams = useCallback(async () => {
-    const channelData = await fetchChannelStreams(
-      activeConfig.youtube.channelHandle,
-    );
+  const refreshStreams = useCallback(
+    async (targetOverride?: string) => {
+      const target =
+        targetOverride?.trim() ||
+        activeConfig.youtube.streamsUrl ||
+        activeConfig.youtube.channelHandle ||
+        activeConfig.youtube.channelId;
 
-    if (activeConfig.youtube.apiKey.trim()) {
-      const apiResult = await pollYouTubeLiveStatus(
-        activeConfig.youtube.channelId,
-        activeConfig.youtube.apiKey,
-        windowInfo.serviceStartMs,
-        windowInfo.serviceEndMs,
-      );
+      const channelData = await fetchChannelStreams(target);
+
+      if (!targetOverride && activeConfig.youtube.apiKey.trim()) {
+        const apiResult = await pollYouTubeLiveStatus(
+          channelData.channelId || activeConfig.youtube.channelId,
+          activeConfig.youtube.apiKey,
+          windowInfo.serviceStartMs,
+          windowInfo.serviceEndMs,
+        );
+        setYtStatus({
+          channelId: channelData.channelId,
+          streamsUrl: channelData.streamsUrl,
+          isLive: apiResult.isLive || channelData.isLive,
+          liveVideoId: apiResult.liveVideoId ?? channelData.liveVideoId,
+          liveTitle: apiResult.liveTitle ?? channelData.liveTitle,
+          latestStream: channelData.latestStream,
+          streams: channelData.streams,
+          streamEndedToday: apiResult.streamEndedToday,
+        });
+        return;
+      }
+
       setYtStatus({
-        isLive: apiResult.isLive || channelData.isLive,
-        liveVideoId: apiResult.liveVideoId ?? channelData.liveVideoId,
-        liveTitle: apiResult.liveTitle ?? channelData.liveTitle,
+        channelId: channelData.channelId,
+        streamsUrl: channelData.streamsUrl,
+        isLive: channelData.isLive,
+        liveVideoId: channelData.liveVideoId,
+        liveTitle: channelData.liveTitle,
         latestStream: channelData.latestStream,
         streams: channelData.streams,
-        streamEndedToday: apiResult.streamEndedToday,
+        streamEndedToday: false,
       });
-      return;
-    }
-
-    setYtStatus({
-      isLive: channelData.isLive,
-      liveVideoId: channelData.liveVideoId,
-      liveTitle: channelData.liveTitle,
-      latestStream: channelData.latestStream,
-      streams: channelData.streams,
-      streamEndedToday: false,
-    });
-  }, [
-    activeConfig.youtube.channelHandle,
-    activeConfig.youtube.channelId,
-    activeConfig.youtube.apiKey,
-    windowInfo.serviceStartMs,
-    windowInfo.serviceEndMs,
-  ]);
+    },
+    [
+      activeConfig.youtube.streamsUrl,
+      activeConfig.youtube.channelHandle,
+      activeConfig.youtube.channelId,
+      activeConfig.youtube.apiKey,
+      windowInfo.serviceStartMs,
+      windowInfo.serviceEndMs,
+    ],
+  );
 
   // Poll channel /streams endpoint + optional YouTube Data API v3 (every 90 seconds)
   useEffect(() => {
@@ -430,6 +446,7 @@ export default function App() {
             }
             isLiveNow={ytStatus.isLive}
             modeSetting={modeSetting}
+            channelId={ytStatus.channelId ?? activeConfig.youtube.channelId}
             showTemasYAnuncios={activeConfig.features.showTemasYAnuncios}
             showMomentosSidebar={activeConfig.features.showMomentosSidebar}
           />

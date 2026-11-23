@@ -8,6 +8,8 @@ export interface StreamEntry {
 }
 
 export interface YouTubeLiveStatus {
+  channelId?: string;
+  streamsUrl?: string;
   isLive: boolean;
   liveVideoId: string | null;
   liveTitle: string | null;
@@ -17,11 +19,11 @@ export interface YouTubeLiveStatus {
 }
 
 export async function fetchChannelStreams(
-  channelHandle: string,
+  channelTarget: string,
 ): Promise<Omit<YouTubeLiveStatus, 'streamEndedToday'>> {
   try {
     const res = await fetch(
-      `/api/youtube/streams?handle=${encodeURIComponent(channelHandle)}`,
+      `/api/youtube/streams?target=${encodeURIComponent(channelTarget)}`,
       { cache: 'no-store' },
     );
     if (!res.ok) {
@@ -34,6 +36,8 @@ export async function fetchChannelStreams(
       };
     }
     const data = (await res.json()) as {
+      channelId?: string;
+      streamsUrl?: string;
       isLive?: boolean;
       liveVideoId?: string | null;
       liveTitle?: string | null;
@@ -41,6 +45,8 @@ export async function fetchChannelStreams(
       streams?: StreamEntry[];
     };
     return {
+      channelId: data.channelId,
+      streamsUrl: data.streamsUrl,
       isLive: Boolean(data.isLive),
       liveVideoId: data.liveVideoId ?? null,
       liveTitle: data.liveTitle ?? null,

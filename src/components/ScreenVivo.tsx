@@ -15,6 +15,7 @@ interface ScreenVivoProps {
   liveTitle: string | null;
   isLiveNow: boolean;
   modeSetting: ModeSetting;
+  channelId?: string;
   showTemasYAnuncios?: boolean;
   showMomentosSidebar?: boolean;
 }
@@ -30,12 +31,13 @@ export function ScreenVivo({
   liveTitle,
   isLiveNow,
   modeSetting,
+  channelId = CONFIG.youtube.channelId,
   showTemasYAnuncios = false,
   showMomentosSidebar = false,
 }: ScreenVivoProps) {
   const clockLabel = formatClock12h(svNow);
   const embedUrl = buildYouTubeEmbedUrl(
-    CONFIG.youtube.channelId,
+    channelId,
     liveVideoId,
     muted,
   );
