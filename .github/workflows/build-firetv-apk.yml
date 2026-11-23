@@ -46,6 +46,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ALLOW_DEBUG_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_debug_only }}
+          IS_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
           set -euo pipefail
           HAS_RELEASE_SECRETS=0
@@ -61,23 +62,23 @@ jobs:
             echo "SIGNING_MODE=release" >> "$GITHUB_ENV"
             # Hygiene: do not leave the keystore on the runner disk longer than needed
             shred -u "${RUNNER_TEMP}/release.keystore" 2>/dev/null || rm -f "${RUNNER_TEMP}/release.keystore"
-          elif [ "${ALLOW_DEBUG_ONLY}" = "true" ]; then
-            echo "::warning::Building ephemeral debug APK. This signature changes per runner and CANNOT update an installed app."
-            gradle assembleDebug -PAPP_VERSION_CODE=${{ github.run_number }} --no-daemon
-            cp app/build/outputs/apk/debug/app-debug.apk ../Pantalla-IGC-FireTV.apk
-            echo "SIGNING_MODE=debug-ephemeral" >> "$GITHUB_ENV"
-          else
+          elif [ "${IS_MAIN}" = "true" ] && [ "${ALLOW_DEBUG_ONLY}" != "true" ]; then
             {
-              echo "::error::Missing GitHub Actions secrets for a stable release keystore."
+              echo "::error::Missing GitHub Actions secrets for a stable release keystore on main."
               echo "Configure these repository secrets, then re-run this workflow:"
               echo "  ANDROID_KEYSTORE_BASE64   (base64 of the .jks/.keystore file)"
               echo "  ANDROID_KEYSTORE_PASSWORD"
               echo "  ANDROID_KEY_ALIAS"
               echo "  ANDROID_KEY_PASSWORD"
               echo "See firetv-apk/README.md (section Firma / actualizaciones)."
-              echo "For a one-off debug artifact only, use workflow_dispatch with allow_debug_only=true (will not publish firetv-latest)."
+              echo "Refusing to publish an ephemeral debug APK to firetv-latest."
             } >&2
             exit 1
+          else
+            echo "::warning::Building ephemeral debug APK (non-main or allow_debug_only). Will NOT publish firetv-latest."
+            gradle assembleDebug -PAPP_VERSION_CODE=${{ github.run_number }} --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk ../Pantalla-IGC-FireTV.apk
+            echo "SIGNING_MODE=debug-ephemeral" >> "$GITHUB_ENV"
           fi
 
       - name: Verify APK is signed
@@ -95,7 +96,7 @@ jobs:
           if-no-files-found: error
 
       - name: Generate detailed Release Notes
-        if: env.SIGNING_MODE == 'release'
+        if: env.SIGNING_MODE == 'release' && github.ref == 'refs/heads/main'
         run: |
           COMMIT_TITLE=$(git log -1 --pretty=format:"%s")
           COMMIT_BODY=$(git log -1 --pretty=format:"%b")
@@ -120,7 +121,7 @@ jobs:
           } > release-notes.md
 
       - name: Publish direct APK to Releases (latest)
-        if: env.SIGNING_MODE == 'release'
+        if: env.SIGNING_MODE == 'release' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: firetv-latest
