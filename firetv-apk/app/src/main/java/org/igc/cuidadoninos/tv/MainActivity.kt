@@ -12,6 +12,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -57,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private var webPageLoaded = false
     private var mainFrameHadError = false
     private var activePinDialog: AlertDialog? = null
+    private var pendingInstallApk: File? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     private val retryLoadRunnable = Runnable {
@@ -328,6 +330,14 @@ class MainActivity : AppCompatActivity() {
         }
         rootContainer.removeCallbacks(delayedAutoUpdateRunnable)
         rootContainer.postDelayed(delayedAutoUpdateRunnable, 15_000L)
+
+        val pending = pendingInstallApk
+        if (pending != null && pending.exists()) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
+                pendingInstallApk = null
+                launchApkInstaller(pending)
+            }
+        }
     }
 
     override fun onPause() {
@@ -832,6 +842,7 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 val updatesDir = File(cacheDir, "updates").apply { mkdirs() }
+                val tmpFile = File(updatesDir, "Pantalla-IGC-FireTV-update.tmp")
                 val apkFile = File(updatesDir, "Pantalla-IGC-FireTV-update.apk")
 
                 val apkConn = (URL(apkDownloadUrl).openConnection() as HttpURLConnection).apply {
@@ -851,26 +862,33 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 apkConn.inputStream.use { input ->
-                    apkFile.outputStream().use { output ->
+                    tmpFile.outputStream().use { output ->
                         input.copyTo(output)
                     }
                 }
+
+                val isValidApk = tmpFile.length() > 100_000L && tmpFile.inputStream().use { stream ->
+                    val b0 = stream.read()
+                    val b1 = stream.read()
+                    b0 == 0x50 && b1 == 0x4B // 'PK' ZIP/APK header
+                }
+                if (!isValidApk) {
+                    tmpFile.delete()
+                    reportStatus(
+                        "El archivo descargado no es un APK válido.",
+                        false,
+                        true
+                    )
+                    return@execute
+                }
+                if (apkFile.exists()) apkFile.delete()
+                tmpFile.renameTo(apkFile)
 
                 updatePromptedInSession = true
                 runOnUiThread {
                     onStatus?.invoke("Descarga lista. Abriendo instalador...", false, false)
                     activePinDialog?.dismiss()
-                    val uri = FileProvider.getUriForFile(
-                        this,
-                        "${packageName}.fileprovider",
-                        apkFile
-                    )
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, "application/vnd.android.package-archive")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    startActivity(intent)
+                    installDownloadedApk(apkFile)
                 }
             } catch (_: Exception) {
                 if (manual) {
@@ -882,6 +900,54 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun installDownloadedApk(apkFile: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            pendingInstallApk = apkFile
+            showInstallPermissionDialog(apkFile)
+            return
+        }
+        launchApkInstaller(apkFile)
+    }
+
+    private fun launchApkInstaller(apkFile: File) {
+        val uri = FileProvider.getUriForFile(
+            this,
+            "${packageName}.fileprovider",
+            apkFile
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(intent)
+    }
+
+    private fun showInstallPermissionDialog(apkFile: File) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            launchApkInstaller(apkFile)
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Permiso requerido en Fire TV")
+            .setMessage("Para actualizar desde la app, habilita 'Instalar aplicaciones desconocidas' para Pantalla IGC y regresa aquí.")
+            .setPositiveButton("Abrir Ajustes") { _, _ ->
+                try {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:$packageName")
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                } catch (_: Exception) {
+                    startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }
+            .setNegativeButton("Cancelar") { _, _ ->
+                pendingInstallApk = null
+            }
+            .show()
     }
 
     @Suppress("DEPRECATION")

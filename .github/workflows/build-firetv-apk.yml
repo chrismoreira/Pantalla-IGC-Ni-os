@@ -35,10 +35,23 @@ jobs:
 
       - name: Build Fire TV APK
         working-directory: firetv-apk
-        run: gradle assembleDebug -PAPP_VERSION_CODE=${{ github.run_number }} --no-daemon
-
-      - name: Prepare APK filename
-        run: cp firetv-apk/app/build/outputs/apk/debug/app-debug.apk Pantalla-IGC-FireTV.apk
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "${RUNNER_TEMP}/release.keystore"
+            export ANDROID_KEYSTORE_PATH="${RUNNER_TEMP}/release.keystore"
+            gradle assembleRelease -PAPP_VERSION_CODE=${{ github.run_number }} --no-daemon
+            cp app/build/outputs/apk/release/app-release.apk ../Pantalla-IGC-FireTV.apk
+            echo "SIGNING_MODE=release" >> "$GITHUB_ENV"
+          else
+            gradle assembleDebug -PAPP_VERSION_CODE=${{ github.run_number }} --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk ../Pantalla-IGC-FireTV.apk
+            echo "SIGNING_MODE=debug-ephemeral" >> "$GITHUB_ENV"
+          fi
 
       - name: Upload Fire TV APK artifact
         uses: actions/upload-artifact@v4
@@ -59,6 +72,11 @@ jobs:
           {
             printf '## Pantalla IGC Fire TV · v1.0.%s [vc:%s]\n\n' "${{ github.run_number }}" "${{ github.run_number }}"
             printf '**Commit:** `%s` — %s\n' "$SHORT_SHA" "$COMMIT_TITLE"
+            if [ "${{ env.SIGNING_MODE }}" = "release" ]; then
+              printf '**Firma:** Release persistente (auto-actualizable sin desinstalar)\n'
+            else
+              printf '**Firma:** Debug temporal (configura Secrets de keystore para auto-actualizar sobre la instalada)\n'
+            fi
             if [ -n "$COMMIT_BODY" ]; then
               printf '\n%s\n' "$COMMIT_BODY"
             fi
